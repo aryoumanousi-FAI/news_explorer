@@ -1,36 +1,59 @@
-name: Update JPT CSV daily
+name: Update JPT CSV (daily)
 
 on:
+  workflow_dispatch: {}
   schedule:
-    - cron: "0 14 * * *"  # daily 14:00 UTC (adjust)
-  workflow_dispatch:
+    # Runs daily at 14:00 UTC (06:00 Los Angeles during standard time)
+    - cron: "0 14 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-jpt-csv
+  cancel-in-progress: false
 
 jobs:
-  update:
+  run-scraper:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
-      - name: Install deps
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run updater
+      - name: Run Scrapy (export to CSV)
         run: |
-          python scripts/update_jpt_csv.py
+          cd jpt_scraper
+          # Option A: If your pipeline already writes to jpt_scraper/data/jpt.csv, just run the spider:
+          scrapy crawl jpt_latest -a max_pages=10 -a refresh_existing=1
 
-      - name: Commit changes
+          # Option B (recommended): Always produce a clean daily export file from Scrapy feed export:
+          # scrapy crawl jpt_latest -a max_pages=10 -a refresh_existing=1 -O data/jpt.csv
+
+      - name: Commit & push if changed
         run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
           git add jpt_scraper/data/jpt.csv
-          git commit -m "Daily update jpt.csv" || echo "No changes"
+
+          # Only commit if there are actual changes
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git commit -m "Daily update: JPT CSV"
           git push
