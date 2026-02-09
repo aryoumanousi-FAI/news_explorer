@@ -23,23 +23,21 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # Ensure pandas and scrapy are in requirements.txt
           pip install -r requirements.txt
 
       - name: Run Scrape and Merge
         run: |
-          # The script handles running scrapy and merging the csv
-          python jpt_scraper/scripts/update_csv.py
+          # Now pointing to the root 'scripts' folder
+          python scripts/update_csv.py
 
       - name: Commit and push changes
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Add the specific file we updated
+          # Add the data file (inside jpt_scraper/data)
           git add jpt_scraper/data/jpt.csv
           
-          # Commit only if there are changes
           if git diff --staged --quiet; then
             echo "No changes to commit."
           else
