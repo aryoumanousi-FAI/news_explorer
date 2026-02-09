@@ -1,4 +1,3 @@
-# .github/workflows/update.yml
 name: Update JPT CSV (daily)
 
 on:
@@ -39,12 +38,12 @@ jobs:
             -s FEED_FORMAT=csv \
             -O data/jpt_new.csv
 
-      - name: Assert new CSV exists (fail loudly if scrape produced nothing)
+      - name: Assert new CSV exists
         run: |
           test -f jpt_scraper/data/jpt_new.csv
           echo "jpt_new.csv exists"
 
-      - name: Merge temp CSV into master CSV
+      - name: Merge temp CSV into master CSV (with debug)
         run: |
           python scripts/merge_jpt_csv.py
 
