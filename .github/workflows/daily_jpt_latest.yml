@@ -26,17 +26,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # (Optional but helpful) confirms scrapy.cfg is found
-      - name: Debug (confirm Scrapy project)
+      - name: Debug (confirm canonical master exists)
         working-directory: jpt_scraper
         run: |
           pwd
           ls -la
-          echo "scrapy.cfg present?"
-          test -f scrapy.cfg && echo "YES" || (echo "NO" && exit 1)
+          echo "Master file:"
+          ls -la data/jpt.csv
+          echo "Inner file (should be ignored later):"
+          ls -la jpt_scraper/data/jpt.csv || true
+          echo "Spiders:"
           scrapy list
 
-      - name: Scrape last 10 pages
+      - name: Scrape last 10 pages (write temp)
         working-directory: jpt_scraper
         run: |
           scrapy crawl jpt_latest \
@@ -45,7 +47,7 @@ jobs:
             -a csv_path=data/jpt.csv \
             -O data/_new.csv
 
-      - name: Merge + de-dupe
+      - name: Merge + de-dupe into canonical master
         working-directory: jpt_scraper
         run: |
           python scripts/merge_jpt_csv.py
