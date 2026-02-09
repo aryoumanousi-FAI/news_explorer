@@ -11,8 +11,9 @@ permissions:
 jobs:
   scrape:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout
+      - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -20,7 +21,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install deps
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
@@ -33,15 +34,15 @@ jobs:
             -a csv_path=jpt_scraper/data/jpt.csv \
             -O jpt_scraper/data/_new.csv
 
-      - name: Merge + de-dupe into master CSV
+      - name: Merge + de-dupe
         run: |
           python scripts/merge_jpt_csv.py
           rm -f jpt_scraper/data/_new.csv
 
-      - name: Commit & push if changed
+      - name: Commit and push if changed
         run: |
           if git diff --quiet; then
-            echo "No changes."
+            echo "No changes to commit."
             exit 0
           fi
           git config user.name "github-actions[bot]"
