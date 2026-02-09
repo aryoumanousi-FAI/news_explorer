@@ -14,39 +14,31 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo (with LFS)
+      - name: Checkout repo
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          lfs: true
-
-      - name: Ensure LFS objects are pulled (safe if not using LFS)
-        run: |
-          git lfs install --local || true
-          git lfs pull || true
-
-      - name: Sanity check master file exists + size
-        run: |
-          echo "HEAD:"
-          git rev-parse HEAD
-          echo "Master file:"
-          ls -lh jpt_scraper/data/jpt.csv || true
-          echo "Line count:"
-          wc -l jpt_scraper/data/jpt.csv || true
-
-          # Hard fail if it looks like the tiny version
-          python - <<'PY'
-          import pandas as pd
-          df = pd.read_csv("jpt_scraper/data/jpt.csv", dtype=str, keep_default_na=False)
-          print("rows:", len(df))
-          if len(df) < 7000:
-              raise SystemExit("ABORT: master appears truncated (<7000 rows).")
-          PY
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
+
+      - name: Sanity check master file size (no pandas required)
+        run: |
+          echo "HEAD:"
+          git rev-parse HEAD
+
+          echo "Master file info:"
+          ls -lh jpt_scraper/data/jpt.csv
+          lines=$(wc -l < jpt_scraper/data/jpt.csv)
+          echo "Master line count: $lines"
+
+          # Fail fast if master looks truncated (your full history is ~8286+ lines)
+          if [ "$lines" -lt 7000 ]; then
+            echo "ABORT: master jpt.csv looks truncated ($lines lines)."
+            exit 1
+          fi
 
       - name: Install dependencies
         run: |
