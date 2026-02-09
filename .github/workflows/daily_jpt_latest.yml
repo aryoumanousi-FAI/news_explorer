@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  scrape-and-update:
+  scrape-and-merge:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
@@ -25,24 +25,25 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Scrape to _new.csv (no master touched)
+      - name: Scrape to daily CSV (overwritten each run)
         run: |
           python scripts/scrape_new.py
 
-      - name: Merge _new.csv into master (dedupe by url)
+      - name: Merge master + daily into merged CSV (no duplicate urls)
         run: |
-          python scripts/merge_master.py
+          python scripts/merge_three_way.py
 
-      - name: Commit and push changes
+      - name: Commit and push changes (daily + merged only)
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
+          git add jpt_scraper/data/jpt_daily.csv
           git add jpt_scraper/data/jpt.csv
 
           if git diff --staged --quiet; then
             echo "No changes to commit."
           else
-            git commit -m "Auto-update: JPT data [skip ci]"
+            git commit -m "Auto-update: JPT daily + merged [skip ci]"
             git push
           fi
