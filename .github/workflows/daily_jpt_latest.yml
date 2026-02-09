@@ -26,9 +26,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Scrape last 10 pages (stop at last known date)
+      - name: Scrape last 10 pages
         run: |
           scrapy crawl jpt_latest \
+            -s SCRAPY_SETTINGS_MODULE=jpt_scraper.settings \
             -a max_pages=10 \
             -a stop_at_last_date=1 \
             -a csv_path=jpt_scraper/data/jpt.csv \
