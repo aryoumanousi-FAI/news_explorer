@@ -5,24 +5,21 @@ import subprocess
 from pathlib import Path
 import pandas as pd
 
-# Assumes structure:
-# jpt_scraper/           (Repo Root / Scrapy Project Root)
-#   scrapy.cfg
-#   jpt_scraper/         (Python Package)
-#     scripts/           (Where this file is)
-#       update_csv.py
-#     data/              (Where csvs are)
-#       jpt.csv
-#
-# So parents[1] gets us to 'jpt_scraper' package folder.
-# If your data is in the *outer* root, change this to parents[2].
-PACKAGE_ROOT = Path(__file__).resolve().parents[1]
-CSV_PATH = PACKAGE_ROOT / "data" / "jpt.csv"
-TMP_OUT = PACKAGE_ROOT / "data" / "_new.csv"
-PROJECT_ROOT = PACKAGE_ROOT.parent  # The folder containing scrapy.cfg
+# 1. Determine paths relative to this script
+# Script location: jpt_scraper/scripts/update_csv.py
+# Parent [1]:      jpt_scraper/ (Project Root, where scrapy.cfg usually is)
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DATA_DIR = PROJECT_ROOT / "data"
 
-# Must match the 'name' defined in your spider class
-SPIDER_NAME = os.getenv("SPIDER_NAME", "jpt_latest") 
+CSV_PATH = DATA_DIR / "jpt.csv"
+TMP_OUT = DATA_DIR / "_new.csv"
+
+# 2. MATCH THE SPIDER NAME from your scraper file
+# Your class is JptLatestSpider(name="jpt_latest")
+SPIDER_NAME = os.getenv("SPIDER_NAME", "jpt_latest")
+
+# 3. MATCH THE ARGUMENT NAME
+# Your spider uses 'max_pages', not 'last_pages'
 MAX_PAGES = int(os.getenv("MAX_PAGES", "10"))
 
 def run_scrape() -> None:
@@ -97,6 +94,9 @@ def merge_dedupe() -> int:
     return max(added, 0)
 
 def main() -> None:
+    # Ensure data directory exists
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    
     run_scrape()
     added = merge_dedupe()
     print(f"Done. Added {added} new rows.")
