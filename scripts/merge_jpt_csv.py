@@ -3,7 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 import pandas as pd
 
-# Canonical locations (relative to jpt_scraper/ because workflow runs there)
+# IMPORTANT:
+# This script is run with working-directory: jpt_scraper
+# Canonical master is: jpt_scraper/data/jpt.csv  -> relative path: data/jpt.csv
 MASTER = Path("data/jpt.csv")
 NEW = Path("data/_new.csv")
 
@@ -25,7 +27,7 @@ def main() -> None:
 
     combined = pd.concat([old_df, new_df], ignore_index=True)
 
-    # Keep newest record per URL
+    # Keep newest per URL
     if "scraped_at" in combined.columns:
         combined["scraped_at"] = pd.to_datetime(combined["scraped_at"], errors="coerce")
         combined = combined.sort_values("scraped_at")
@@ -40,7 +42,7 @@ def main() -> None:
             sort_cols.append("scraped_at")
         combined = combined.sort_values(sort_cols, ascending=False)
 
-    # SAFETY: refuse to overwrite if we somehow shrink a lot (usually wrong master path)
+    # SAFETY: prevent accidental overwrite if somehow shrinking
     if len(combined) < len(old_df):
         raise RuntimeError(
             f"Refusing to overwrite: merged rows ({len(combined)}) < old rows ({len(old_df)}). "
@@ -52,6 +54,7 @@ def main() -> None:
     tmp.replace(MASTER)
 
     print(f"Merged OK. Old={len(old_df)} NewScrape={len(new_df)} Final={len(combined)}")
+    print(f"Wrote master to: {MASTER.resolve()}")
 
 
 if __name__ == "__main__":
