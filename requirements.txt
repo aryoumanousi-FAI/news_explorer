@@ -2,4 +2,4 @@ scrapy==2.11.2
 itemadapter==0.8.0
 streamlit==1.37.1
 python-dateutil==2.9.0.post0
-
+pandas==2.2.2
