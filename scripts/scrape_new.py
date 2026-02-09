@@ -11,7 +11,8 @@ REPO_ROOT = SCRIPTS_DIR.parent
 
 SCRAPY_ROOT = REPO_ROOT / "jpt_scraper"
 DATA_DIR = SCRAPY_ROOT / "data"
-NEW_CSV = DATA_DIR / "_new.csv"
+
+DAILY_CSV = DATA_DIR / "jpt_daily.csv"
 
 # --- CONFIG ---
 SPIDER_NAME = os.getenv("SPIDER_NAME", "jpt_latest")
@@ -21,14 +22,14 @@ MAX_PAGES = int(os.getenv("MAX_PAGES", "10"))
 def main() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-    if NEW_CSV.exists():
-        NEW_CSV.unlink()
+    if DAILY_CSV.exists():
+        DAILY_CSV.unlink()
 
-    print("--- Scrape step ---")
+    print("--- Scrape step (daily only) ---")
     print(f"SCRAPY_ROOT: {SCRAPY_ROOT}")
     print(f"Spider:      {SPIDER_NAME}")
     print(f"MAX_PAGES:   {MAX_PAGES}")
-    print(f"Output:      {NEW_CSV}")
+    print(f"Output:      {DAILY_CSV}")
 
     cmd = [
         "scrapy",
@@ -37,7 +38,7 @@ def main() -> None:
         "-a",
         f"max_pages={MAX_PAGES}",
         "-O",
-        str(NEW_CSV),
+        str(DAILY_CSV),
     ]
 
     subprocess.run(cmd, cwd=str(SCRAPY_ROOT), check=True)
