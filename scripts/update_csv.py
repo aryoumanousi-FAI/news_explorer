@@ -21,6 +21,10 @@ SPIDER_NAME = os.getenv("SPIDER_NAME", "jpt_latest")
 MAX_PAGES = int(os.getenv("MAX_PAGES", "10"))
 
 def run_scrape() -> None:
+    print(f"DEBUG CHECK: SPIDER_NAME is '{SPIDER_NAME}' (Should be 'jpt_latest')")
+    # ... rest of function
+
+def run_scrape() -> None:
     """
     Runs the Scrapy spider and outputs to TMP_OUT.
     """
