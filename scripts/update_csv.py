@@ -2,105 +2,154 @@ from __future__ import annotations
 
 import os
 import subprocess
-import sys
 from pathlib import Path
+
 import pandas as pd
 
-# --- PATH CONFIGURATION ---
+
+# -------------------
+# PATH CONFIGURATION
+# -------------------
+# Script:  repo_root/scripts/update_csv.py
+# Root:    repo_root
 SCRIPTS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPTS_DIR.parent
 
-# Based on your structure:
-# repo/jpt_scraper/data/jpt.csv
 SCRAPY_ROOT = REPO_ROOT / "jpt_scraper"
 DATA_DIR = SCRAPY_ROOT / "data"
-CSV_PATH = DATA_DIR / "jpt.csv"
+
+MASTER_CSV = DATA_DIR / "jpt.csv"
 TMP_OUT = DATA_DIR / "_new.csv"
 
 SPIDER_NAME = os.getenv("SPIDER_NAME", "jpt_latest")
 MAX_PAGES = int(os.getenv("MAX_PAGES", "10"))
 
-def check_paths():
-    """Debugs paths and ensures Master CSV exists."""
-    print(f"--- Path Check ---")
-    print(f"Repo Root:  {REPO_ROOT}")
-    print(f"Data Dir:   {DATA_DIR}")
-    print(f"Master CSV: {CSV_PATH}")
+# Behavior flags
+# - If True: new rows replace old rows when URL duplicates occur (recommended).
+# - If False: old rows win; new rows only add truly new URLs.
+NEW_WINS_ON_DUPLICATE = True
 
-    if not DATA_DIR.exists():
-        print(f"ERROR: Data directory not found at {DATA_DIR}")
-        print(f"Contents of {SCRAPY_ROOT}:")
-        if SCRAPY_ROOT.exists():
-            print(os.listdir(SCRAPY_ROOT))
-        else:
-            print("  (Scrapy Root not found)")
-        sys.exit(1)
+# If True: abort if merged master would shrink vs existing master (prevents accidental wipe).
+GUARD_AGAINST_SHRINK = True
 
-    if not CSV_PATH.exists():
-        print(f"CRITICAL ERROR: Master CSV not found at {CSV_PATH}")
-        print(f"Contents of {DATA_DIR}:")
-        print(os.listdir(DATA_DIR))
-        print("\n!!! ABORTING TO PREVENT OVERWRITE !!!")
-        print("Please check if jpt.csv is in your git repo or if it is ignored by .gitignore")
-        sys.exit(1) # <--- THIS STOPS THE OVERWRITE
-    
-    print("SUCCESS: Master CSV found.")
 
+# -------------------
+# SCRAPE
+# -------------------
 def run_scrape() -> None:
+    """Runs Scrapy and writes results to TMP_OUT (_new.csv)."""
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+
     if TMP_OUT.exists():
         TMP_OUT.unlink()
 
-    print(f"\n--- Starting Scrape ---")
+    print("--- Starting Scrape ---")
+    print(f"Repo root:        {REPO_ROOT}")
+    print(f"Scrapy root:      {SCRAPY_ROOT}")
+    print(f"Spider:           {SPIDER_NAME}")
+    print(f"Master CSV:       {MASTER_CSV}")
+    print(f"Temp output CSV:  {TMP_OUT}")
+    print(f"MAX_PAGES:        {MAX_PAGES}")
+
+    if MASTER_CSV.exists():
+        print(f"  -> Found master CSV at {MASTER_CSV}")
+    else:
+        print(f"  -> WARNING: Master CSV NOT found at {MASTER_CSV}. Will create it after merge.")
+
+    # NOTE:
+    # We pass master path into the spider ONLY for reading "stop_at_last_date" logic.
+    # The spider should NOT write to this path (it should only write to TMP_OUT via -O).
     cmd = [
-        "scrapy", "crawl", SPIDER_NAME,
-        "-a", f"max_pages={MAX_PAGES}",
-        "-a", "stop_at_last_date=1",
-        "-a", f"csv_path={CSV_PATH}",
-        "-O", str(TMP_OUT),
+        "scrapy",
+        "crawl",
+        SPIDER_NAME,
+        "-a",
+        f"max_pages={MAX_PAGES}",
+        "-a",
+        "stop_at_last_date=1",
+        "-a",
+        f"master_csv_path={MASTER_CSV}",
+        "-O",
+        str(TMP_OUT),
     ]
+
     subprocess.run(cmd, cwd=str(SCRAPY_ROOT), check=True)
 
+
+# -------------------
+# MERGE + DEDUPE
+# -------------------
 def merge_dedupe() -> int:
-    print(f"\n--- Starting Merge ---")
-    
-    # 1. Read New Data
+    print("\n--- Starting Merge ---")
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+
     if not TMP_OUT.exists():
-        print("No new scrape output found.")
+        print("No new scrape output found (_new.csv missing). Exiting.")
         return 0
+
+    # Load new
     new_df = pd.read_csv(TMP_OUT)
-    print(f"New rows: {len(new_df)}")
+    print(f"New rows scraped: {len(new_df)}")
 
-    # 2. Read Old Data (Guaranteed to exist by check_paths)
-    old_df = pd.read_csv(CSV_PATH)
-    print(f"Old rows: {len(old_df)}")
+    if "url" not in new_df.columns:
+        raise ValueError("New scrape output missing required 'url' column.")
 
-    # 3. Combine
+    # Load old (if exists)
+    if MASTER_CSV.exists():
+        old_df = pd.read_csv(MASTER_CSV)
+        print(f"Existing rows loaded: {len(old_df)}")
+    else:
+        old_df = pd.DataFrame()
+        print("Master CSV not found. Starting fresh.")
+
+    # Combine
     combined = pd.concat([old_df, new_df], ignore_index=True)
-    
-    # 4. Clean & Sort
+
+    # Normalize datetimes for sorting (safe if columns absent)
     if "scraped_at" in combined.columns:
         combined["scraped_at"] = pd.to_datetime(combined["scraped_at"], errors="coerce")
-        combined = combined.sort_values(by="scraped_at")
 
-    # 5. Deduplicate
-    combined = combined.drop_duplicates(subset=["url"], keep="last")
-
-    # Final Sort
     if "published_date" in combined.columns:
         combined["published_date"] = pd.to_datetime(combined["published_date"], errors="coerce")
-        combined = combined.sort_values(by=["published_date", "scraped_at"], ascending=[False, False])
 
-    # 6. Save
-    combined.to_csv(CSV_PATH, index=False)
-    
-    added = len(combined) - len(old_df)
-    print(f"Merged. Final count: {len(combined)} (Added: {added})")
-    return max(added, 0)
+    # Sort so dedupe keeps the row you intend
+    # If NEW_WINS_ON_DUPLICATE=True, we want the newest version of a URL -> keep last
+    # We sort by scraped_at (ascending) so newest tends to be last.
+    if "scraped_at" in combined.columns:
+        combined = combined.sort_values(by="scraped_at", ascending=True, kind="mergesort")
 
-def main() -> None:
-    check_paths() # <--- SAFETY FIRST
-    run_scrape()
-    merge_dedupe()
+    # Dedupe on URL
+    keep_rule = "last" if NEW_WINS_ON_DUPLICATE else "first"
+    combined = combined.drop_duplicates(subset=["url"], keep=keep_rule)
 
-if __name__ == "__main__":
-    main()
+    # Final presentation sort (newest published first)
+    if "published_date" in combined.columns:
+        if "scraped_at" in combined.columns:
+            combined = combined.sort_values(
+                by=["published_date", "scraped_at"],
+                ascending=[False, False],
+                kind="mergesort",
+            )
+        else:
+            combined = combined.sort_values(by=["published_date"], ascending=[False], kind="mergesort")
+    elif "scraped_at" in combined.columns:
+        combined = combined.sort_values(by=["scraped_at"], ascending=[False], kind="mergesort")
+
+    # Guard: never overwrite with a smaller master (prevents accidental wipe)
+    if GUARD_AGAINST_SHRINK and MASTER_CSV.exists() and not old_df.empty:
+        old_unique = old_df["url"].nunique() if "url" in old_df.columns else len(old_df)
+        new_unique = combined["url"].nunique()
+        if new_unique < old_unique:
+            raise RuntimeError(
+                f"ABORT: merged master would shrink (unique urls {new_unique} < {old_unique}). "
+                "Not overwriting jpt.csv. Check paths / spider output."
+            )
+
+    # Atomic write
+    tmp_master = MASTER_CSV.with_suffix(".csv.tmp")
+    combined.to_csv(tmp_master, index=False)
+    tmp_master.replace(MASTER_CSV)
+
+    final_count = len(combined)
+    added = final_count - (len(old_df) if not old_df.empty else 0)
+    print(f"Merge Complete. Final Total: {
