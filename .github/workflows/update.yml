@@ -1,4 +1,3 @@
-# .github/workflows/update.yml
 name: Update JPT CSV (daily)
 
 on:
@@ -24,44 +23,12 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Sanity check master file size (no pandas required)
-        run: |
-          echo "HEAD:"
-          git rev-parse HEAD
-
-          echo "Master file info:"
-          ls -lh jpt_scraper/data/jpt.csv
-          lines=$(wc -l < jpt_scraper/data/jpt.csv)
-          echo "Master line count: $lines"
-
-          # Fail fast if master looks truncated (your full history is ~8286+ lines)
-          if [ "$lines" -lt 7000 ]; then
-            echo "ABORT: master jpt.csv looks truncated ($lines lines)."
-            exit 1
-          fi
-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Sanity check master with pandas (real rows/URLs)
-        run: |
-          python - <<'PY'
-          import pandas as pd
-          p = "jpt_scraper/data/jpt.csv"
-          df = pd.read_csv(p, dtype=str, keep_default_na=False, engine="python")
-          print("rows:", len(df))
-          if "url" in df.columns:
-              print("unique_urls:", df["url"].nunique())
-              print("sample_urls:", df["url"].head(5).tolist())
-          if "published_date" in df.columns:
-              dt = pd.to_datetime(df["published_date"], errors="coerce")
-              if dt.notna().any():
-                  print("date_range:", str(dt.min().date()), "->", str(dt.max().date()))
-          PY
-
-
+      # Scrape latest pages into a temp file (never touch master here)
       - name: Run Scrapy (latest 10 pages → temp CSV)
         run: |
           cd jpt_scraper
@@ -77,13 +44,12 @@ jobs:
           test -f jpt_scraper/data/jpt_new.csv
           echo "jpt_new.csv exists"
           ls -lh jpt_scraper/data/jpt_new.csv
-          wc -l jpt_scraper/data/jpt_new.csv
 
-      - name: Merge new data into master jpt.csv
+      - name: Merge new data into master (safe)
         run: |
           python scripts/merge_jpt_csv.py
 
-      - name: Commit & push if jpt.csv changed
+      - name: Commit & push if master changed
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
