@@ -25,19 +25,21 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run Scrape and Merge
+      - name: Scrape to _new.csv (no master touched)
         run: |
-          # Use the script in the root scripts folder
-          python scripts/update_csv.py
+          python scripts/scrape_new.py
+
+      - name: Merge _new.csv into master (dedupe by url)
+        run: |
+          python scripts/merge_master.py
 
       - name: Commit and push changes
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          
-          # Add the data file (inside jpt_scraper/data)
+
           git add jpt_scraper/data/jpt.csv
-          
+
           if git diff --staged --quiet; then
             echo "No changes to commit."
           else
