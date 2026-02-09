@@ -1,3 +1,4 @@
+# .github/workflows/update.yml
 name: Update JPT CSV (daily)
 
 on:
@@ -34,20 +35,20 @@ jobs:
           scrapy crawl jpt_latest \
             -a max_pages=10 \
             -a refresh_existing=1 \
-            -s FEED_EXPORT_ENCODING=utf-8 \
             -s FEED_FORMAT=csv \
+            -s FEED_EXPORT_ENCODING=utf-8 \
             -O data/jpt_new.csv
 
-      - name: Assert new CSV exists
+      - name: Verify new scrape output exists
         run: |
           test -f jpt_scraper/data/jpt_new.csv
           echo "jpt_new.csv exists"
 
-      - name: Merge temp CSV into master CSV (with debug)
+      - name: Merge new data into master jpt.csv
         run: |
           python scripts/merge_jpt_csv.py
 
-      - name: Commit & push if changed
+      - name: Commit & push if jpt.csv changed
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
