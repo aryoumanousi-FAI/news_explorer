@@ -3,7 +3,7 @@ name: Update JPT CSV (daily)
 on:
   workflow_dispatch: {}
   schedule:
-    - cron: "0 9 * * *"
+    - cron: "0 9 * * *"   # once per day (UTC)
 
 permissions:
   contents: write
@@ -11,8 +11,9 @@ permissions:
 jobs:
   run-scraper:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout
+      - name: Checkout repo
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -27,13 +28,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run Scrapy to temp CSV
+      - name: Run Scrapy (latest 10 pages → temp CSV)
         run: |
           cd jpt_scraper
-          # IMPORTANT: write to a TEMP file (do NOT overwrite master directly)
           scrapy crawl jpt_latest -a max_pages=10 -a refresh_existing=1 -O data/jpt_new.csv
 
-      - name: Merge temp into master CSV
+      - name: Merge temp CSV into master CSV
         run: |
           python scripts/merge_jpt_csv.py
 
@@ -49,5 +49,5 @@ jobs:
             exit 0
           fi
 
-          git commit -m "Daily update: JPT CSV"
+          git commit -m "Daily update: JPT news (latest 10 pages)"
           git push
