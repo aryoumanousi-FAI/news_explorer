@@ -5,6 +5,18 @@ from pathlib import Path
 import csv
 import pandas as pd
 
+    - name: Sanity check master after checkout
+        run: |
+          echo "HEAD:" && git rev-parse HEAD
+          ls -lh jpt_scraper/data/jpt.csv
+          python - <<'PY'
+          import pandas as pd
+          df = pd.read_csv("jpt_scraper/data/jpt.csv", dtype=str, keep_default_na=False)
+          print("rows:", len(df), "unique_urls:", df["url"].nunique())
+          dt = pd.to_datetime(df["published_date"], errors="coerce")
+          print("min_date:", dt.min(), "max_date:", dt.max())
+          PY
+
 ROOT = Path(__file__).resolve().parents[1]
 MASTER = ROOT / "jpt_scraper" / "data" / "jpt.csv"
 NEW = ROOT / "jpt_scraper" / "data" / "jpt_new.csv"
@@ -143,3 +155,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
