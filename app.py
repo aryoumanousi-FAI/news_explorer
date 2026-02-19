@@ -421,13 +421,6 @@ def main() -> None:
     topics_and = st.sidebar.toggle("Topics: AND match", value=False)
     tags_and = st.sidebar.toggle("Tags: AND match", value=False)
     countries_and = st.sidebar.toggle("Countries: AND match", value=False)
-
-    st.sidebar.divider()
-    st.sidebar.header("Display")
-    page_size = st.sidebar.selectbox("Page size", [10, 25, 50, 100], index=1)
-    show_excerpt = st.sidebar.toggle("Show excerpt", value=True)
-    excerpt_len = st.sidebar.slider("Excerpt length", 120, 600, 320, 20)
-
     st.sidebar.divider()
 
     # Sources
@@ -464,6 +457,12 @@ def main() -> None:
         else:
             excerpt_hit = pd.Series(False, index=filtered.index)
         filtered = filtered[title_hit | excerpt_hit]
+
+    st.sidebar.divider()
+    st.sidebar.header("Display")
+    page_size = st.sidebar.selectbox("Page size", [10, 25, 50, 100], index=1)
+    show_excerpt = st.sidebar.toggle("Show excerpt", value=True)
+    excerpt_len = st.sidebar.slider("Excerpt length", 120, 600, 320, 20)
 
     # Sort newest first
     sort_cols = []
@@ -595,6 +594,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 
 
 
