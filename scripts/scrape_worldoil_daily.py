@@ -15,11 +15,12 @@ DAILY_CSV = DATA_DIR / "worldoil_daily.csv"
 # ---- WORLDOIL ONLY ----
 ALLOWED_WORLDOIL_SPIDERS = {"worldoil_news"}  # add other WorldOil spiders here if you have them
 
-SPIDERS = os.getenv("SPIDERS", "worldoil_news")
-MAX_PAGES = int(os.getenv("MAX_PAGES", "10"))
-
-STOP_AT_LAST_DATE = int(os.getenv("STOP_AT_LAST_DATE", "1"))
-FULL_CSV_PATH = os.getenv("FULL_CSV_PATH", str(DATA_DIR / "worldoil_full.csv"))
+# Change these lines to be WorldOil-specific
+SPIDERS = os.getenv("WORLDOIL_SPIDERS", "worldoil_news")
+MAX_PAGES = int(os.getenv("WORLDOIL_MAX_PAGES", "10"))
+STOP_AT_LAST_DATE = int(os.getenv("WORLDOIL_STOP_AT_LAST_DATE", "1"))
+# This is the critical one:
+FULL_CSV_PATH = os.getenv("WORLDOIL_FULL_CSV_PATH", str(DATA_DIR / "worldoil_full.csv"))
 
 
 def run_spider(spider: str, mode: str) -> None:
