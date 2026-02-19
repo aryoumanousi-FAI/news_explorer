@@ -1,7 +1,7 @@
 # app.py — Oil & Gas News Explorer
 # Sources:
-# - jpt_scraper/data/jpt.csv (JPT merged output)
-# - jpt_scraper/data/worldoil_full.csv (WorldOil canonical full)
+# - jpt_scraper/data/jpt.csv       (JPT merged output: master + daily)
+# - jpt_scraper/data/worldoil.csv  (WorldOil merged output: full + daily)
 #
 # Features:
 # - Card UI (big clickable title, excerpt, chips)
@@ -16,7 +16,8 @@
 #
 # Notes:
 # - Forces source labels: JPT rows always show as "JPT", WorldOil rows always show as "WorldOil"
-# - Date range filter is “safe”: it filters rows with dates, but does NOT hide rows missing dates
+# - Date range filter is “safe”: filters rows with dates, but does NOT hide rows missing dates
+# - Default view is JPT-only (you can include WorldOil via the Sources filter)
 
 from __future__ import annotations
 
@@ -30,7 +31,6 @@ from typing import Dict, List, Set
 import pandas as pd
 import streamlit as st
 
-
 # -------------------
 # Config
 # -------------------
@@ -38,6 +38,9 @@ JPT_PATH = Path("jpt_scraper/data/jpt.csv")
 WORLDOIL_PATH = Path("jpt_scraper/data/worldoil.csv")
 ALL_TAGS_PATH = Path("all_tags.csv")  # must contain column: tag
 
+# Default selection behavior
+DEFAULT_SOURCES = ["JPT"]  # change to ["JPT", "WorldOil"] if you want both by default
+PREFER_JPT_ON_TIES = True  # break ties in favor of JPT when dates are similar
 
 # -------------------
 # Normalization
@@ -45,9 +48,36 @@ ALL_TAGS_PATH = Path("all_tags.csv")  # must contain column: tag
 WORD_SPLIT_RE = re.compile(r"(\s+|[-/])")  # keep separators
 
 BASE_ACRONYMS = {
-    "AI", "ML", "US", "UK", "UAE", "LNG", "CCS", "CO2", "CO₂", "M&A", "HSE", "OPEC",
-    "NGL", "FPSO", "FLNG", "EOR", "IOR", "NPT", "R&D", "API", "ISO", "NACE",
-    "IIoT", "OT", "IT", "SCADA", "PLC", "DCS", "ESG", "GHG",
+    "AI",
+    "ML",
+    "US",
+    "UK",
+    "UAE",
+    "LNG",
+    "CCS",
+    "CO2",
+    "CO₂",
+    "M&A",
+    "HSE",
+    "OPEC",
+    "NGL",
+    "FPSO",
+    "FLNG",
+    "EOR",
+    "IOR",
+    "NPT",
+    "R&D",
+    "API",
+    "ISO",
+    "NACE",
+    "IIoT",
+    "OT",
+    "IT",
+    "SCADA",
+    "PLC",
+    "DCS",
+    "ESG",
+    "GHG",
 }
 
 COUNTRY_ABBREV = {
@@ -195,16 +225,41 @@ def build_country_set_cached() -> Set[str]:
         import pycountry  # type: ignore
 
         for c in pycountry.countries:
-            for name in [getattr(c, "name", None), getattr(c, "official_name", None), getattr(c, "common_name", None)]:
+            for name in [
+                getattr(c, "name", None),
+                getattr(c, "official_name", None),
+                getattr(c, "common_name", None),
+            ]:
                 if not name:
                     continue
                 out.add(COUNTRY_ABBREV.get(name, name))
     except Exception:
         out |= {
-            "Canada", "Mexico", "Brazil", "Argentina", "Norway", "Netherlands", "Germany",
-            "France", "Italy", "Spain", "India", "China", "Japan", "Korea", "Australia",
-            "Saudi Arabia", "Qatar", "Kuwait", "Iraq", "Iran", "Oman", "Egypt", "Nigeria",
-            "Malaysia", "Greece",
+            "Canada",
+            "Mexico",
+            "Brazil",
+            "Argentina",
+            "Norway",
+            "Netherlands",
+            "Germany",
+            "France",
+            "Italy",
+            "Spain",
+            "India",
+            "China",
+            "Japan",
+            "Korea",
+            "Australia",
+            "Saudi Arabia",
+            "Qatar",
+            "Kuwait",
+            "Iraq",
+            "Iran",
+            "Oman",
+            "Egypt",
+            "Nigeria",
+            "Malaysia",
+            "Greece",
         }
     return out
 
@@ -310,11 +365,11 @@ def main() -> None:
     st.set_page_config(page_title="Oil & Gas News Explorer", layout="wide")
     st.title("Oil & Gas News Explorer")
 
-    # Load sources
+    # Load sources (separate merged outputs)
     jpt = load_csv(JPT_PATH)
     wo = load_csv(WORLDOIL_PATH)
 
-    # Force source labels so JPT never “disappears”
+    # Force source labels so neither “disappears”
     if not jpt.empty:
         jpt["source"] = "JPT"
     if not wo.empty:
@@ -398,17 +453,32 @@ def main() -> None:
     df["topics_norm"] = df[col_topics].apply(normalize_topics_list)
     df["countries"] = df["tags_norm"].apply(lambda xs: extract_countries_from_tags(xs, country_set))
 
-    df["source_norm"] = df[col_source].apply(lambda x: normalize_phrase(_normalize_text(x), acronyms) if _normalize_text(x) else "")
+    df["source_norm"] = df[col_source].apply(
+        lambda x: normalize_phrase(_normalize_text(x), acronyms) if _normalize_text(x) else ""
+    )
     df["title_norm"] = df[col_title].apply(lambda x: _normalize_text(x))
 
-    df["published_dt"] = pd.to_datetime(df[col_published], errors="coerce") if col_published and col_published in df.columns else pd.NaT
-    df["scraped_dt"] = pd.to_datetime(df[col_scraped], errors="coerce") if col_scraped and col_scraped in df.columns else pd.NaT
+    df["published_dt"] = (
+        pd.to_datetime(df[col_published], errors="coerce") if col_published and col_published in df.columns else pd.NaT
+    )
+    df["scraped_dt"] = (
+        pd.to_datetime(df[col_scraped], errors="coerce") if col_scraped and col_scraped in df.columns else pd.NaT
+    )
+
+    # Rank sources for tie-breaking (optional)
+    if PREFER_JPT_ON_TIES:
+        df["_source_rank"] = df[col_source].map({"JPT": 0, "WorldOil": 1}).fillna(9).astype(int)
+    else:
+        df["_source_rank"] = 0
 
     # -------------------
     # Sidebar (order matters)
     # -------------------
     sources_all = sorted([s for s in df["source_norm"].dropna().unique().tolist() if _normalize_text(s)])
-    sel_sources = st.sidebar.multiselect("Sources", sources_all, default=sources_all)
+
+    default_sources = [s for s in DEFAULT_SOURCES if s in sources_all] or sources_all
+    sel_sources = st.sidebar.multiselect("Sources", sources_all, default=default_sources)
+
     filtered = df[df["source_norm"].isin(sel_sources)].copy()
 
     # --- Published date range (SAFE: doesn't remove rows without a date)
@@ -431,10 +501,7 @@ def main() -> None:
         else:
             start_date, end_date = min_date, max_date
 
-        filtered = filtered[
-            (~has_date) |
-            ((dt_series.dt.date >= start_date) & (dt_series.dt.date <= end_date))
-        ]
+        filtered = filtered[(~has_date) | ((dt_series.dt.date >= start_date) & (dt_series.dt.date <= end_date))]
     else:
         st.sidebar.caption("Published date range: (no dates available)")
 
@@ -478,14 +545,24 @@ def main() -> None:
 
         filtered = filtered[title_hit | excerpt_hit]
 
-    # Sort newest first
+    # Sort newest first (with optional JPT tie-breaker)
     sort_cols = []
+    ascending = []
+
     if "published_dt" in filtered.columns:
         sort_cols.append("published_dt")
+        ascending.append(False)
+
+    if PREFER_JPT_ON_TIES and "_source_rank" in filtered.columns:
+        sort_cols.append("_source_rank")
+        ascending.append(True)
+
     if "scraped_dt" in filtered.columns:
         sort_cols.append("scraped_dt")
+        ascending.append(False)
+
     if sort_cols:
-        filtered = filtered.sort_values(by=sort_cols, ascending=[False] * len(sort_cols), kind="mergesort")
+        filtered = filtered.sort_values(by=sort_cols, ascending=ascending, kind="mergesort")
 
     total = len(filtered)
     st.caption(f"Showing {total:,} results")
@@ -575,7 +652,10 @@ def main() -> None:
         title_html = html.escape(title)
         if url:
             url_html = html.escape(url)
-            title_block = f'<div class="news-title"><a href="{url_html}" target="_blank" rel="noopener noreferrer">{title_html}</a></div>'
+            title_block = (
+                f'<div class="news-title"><a href="{url_html}" target="_blank" rel="noopener noreferrer">'
+                f"{title_html}</a></div>"
+            )
         else:
             title_block = f'<div class="news-title">{title_html}</div>'
 
@@ -609,4 +689,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
