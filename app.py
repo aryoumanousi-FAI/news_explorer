@@ -1,23 +1,12 @@
 # app.py — Oil & Gas News Explorer
-# Sources:
-# - jpt_scraper/data/jpt.csv       (JPT merged output: master + daily)
-# - jpt_scraper/data/worldoil.csv  (WorldOil merged output: full + daily)
-#
-# Features:
-# - Card UI (big clickable title, excerpt, chips)
-# - Filters (sidebar order): Sources, Published date range, Topics, Tags, Countries, Search
-# - AND/OR match mode for Topics/Tags/Countries
-# - Search hits title + excerpt
-# - Pagination
-# - “Last updated” banner (file mtime + latest scraped_at)
-# - Tag/topic normalization (Title Case + acronym preservation)
-# - Canonical tag mapping using all_tags.csv (case-insensitive; column: tag)
-# - Countries derived from tags + manual US/UK/UAE support
+# Sources (separate merged outputs):
+# - jpt_scraper/data/jpt.csv       (JPT merged output)
+# - jpt_scraper/data/worldoil.csv  (WorldOil merged output)
 #
 # Notes:
-# - Forces source labels: JPT rows always show as "JPT", WorldOil rows always show as "WorldOil"
-# - Date range filter is “safe”: filters rows with dates, but does NOT hide rows missing dates
-# - Default view is JPT-only (you can include WorldOil via the Sources filter)
+# - Default view is JPT-only (toggle WorldOil in Sources)
+# - Robust against missing columns / empty files
+# - NEVER uses shared list defaults (prevents “all tags/topics on every card” bug)
 
 from __future__ import annotations
 
@@ -31,6 +20,7 @@ from typing import Dict, List, Set
 import pandas as pd
 import streamlit as st
 
+
 # -------------------
 # Config
 # -------------------
@@ -38,9 +28,10 @@ JPT_PATH = Path("jpt_scraper/data/jpt.csv")
 WORLDOIL_PATH = Path("jpt_scraper/data/worldoil.csv")
 ALL_TAGS_PATH = Path("all_tags.csv")  # must contain column: tag
 
-# Default selection behavior
-DEFAULT_SOURCES = ["JPT"]  # change to ["JPT", "WorldOil"] if you want both by default
-PREFER_JPT_ON_TIES = True  # break ties in favor of JPT when dates are similar
+DEFAULT_SOURCES = ["JPT"]          # JPT-only by default
+PREFER_JPT_ON_TIES = True          # tie-breaker for same-date items
+PAGE_SIZE_DEFAULT_INDEX = 3        # 100
+
 
 # -------------------
 # Normalization
@@ -48,54 +39,17 @@ PREFER_JPT_ON_TIES = True  # break ties in favor of JPT when dates are similar
 WORD_SPLIT_RE = re.compile(r"(\s+|[-/])")  # keep separators
 
 BASE_ACRONYMS = {
-    "AI",
-    "ML",
-    "US",
-    "UK",
-    "UAE",
-    "LNG",
-    "CCS",
-    "CO2",
-    "CO₂",
-    "M&A",
-    "HSE",
-    "OPEC",
-    "NGL",
-    "FPSO",
-    "FLNG",
-    "EOR",
-    "IOR",
-    "NPT",
-    "R&D",
-    "API",
-    "ISO",
-    "NACE",
-    "IIoT",
-    "OT",
-    "IT",
-    "SCADA",
-    "PLC",
-    "DCS",
-    "ESG",
-    "GHG",
+    "AI", "ML", "US", "UK", "UAE", "LNG", "CCS", "CO2", "CO₂", "M&A", "HSE", "OPEC",
+    "NGL", "FPSO", "FLNG", "EOR", "IOR", "NPT", "R&D", "API", "ISO", "NACE",
+    "IIoT", "OT", "IT", "SCADA", "PLC", "DCS", "ESG", "GHG",
 }
 
 COUNTRY_ABBREV = {
-    "US": "US",
-    "U.S.": "US",
-    "USA": "US",
-    "United States": "US",
-    "United States Of America": "US",
-    "UK": "UK",
-    "U.K.": "UK",
-    "United Kingdom": "UK",
-    "Great Britain": "UK",
-    "UK/UKCS": "UK",
-    "U.K./UKCS": "UK",
-    "Britain": "UK",
-    "UAE": "UAE",
-    "U.A.E.": "UAE",
-    "United Arab Emirates": "UAE",
+    "US": "US", "U.S.": "US", "USA": "US",
+    "United States": "US", "United States Of America": "US",
+    "UK": "UK", "U.K.": "UK", "United Kingdom": "UK",
+    "Great Britain": "UK", "UK/UKCS": "UK", "U.K./UKCS": "UK", "Britain": "UK",
+    "UAE": "UAE", "U.A.E.": "UAE", "United Arab Emirates": "UAE",
 }
 
 
@@ -108,6 +62,7 @@ def _normalize_text(x) -> str:
 
 
 def _parse_listish(value) -> list[str]:
+    """Accepts list, python-list-string, or comma-separated string."""
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return []
     if isinstance(value, list):
@@ -141,7 +96,6 @@ def _looks_like_acronym(token: str, acronyms: Set[str]) -> bool:
         return True
     if re.search(r"[&.]", t) and re.search(r"[A-Za-z]", t):
         return True
-
     return False
 
 
@@ -186,7 +140,10 @@ def pick_col(df: pd.DataFrame, candidates: List[str]) -> str | None:
 def load_master_tags(path: Path) -> List[str]:
     if not path.exists():
         return []
-    df = pd.read_csv(path)
+    try:
+        df = pd.read_csv(path)
+    except Exception:
+        return []
     if "tag" not in df.columns:
         return []
     return [_normalize_text(x) for x in df["tag"].tolist() if _normalize_text(x)]
@@ -209,9 +166,8 @@ def build_canonical_tag_map(master_tags: List[str], acronyms: Set[str]) -> Dict[
     m: Dict[str, str] = {}
     for t in master_tags:
         key = _normalize_text(t).lower()
-        if not key:
-            continue
-        m[key] = normalize_phrase(t, acronyms)
+        if key:
+            m[key] = normalize_phrase(t, acronyms)
     return m
 
 
@@ -225,41 +181,16 @@ def build_country_set_cached() -> Set[str]:
         import pycountry  # type: ignore
 
         for c in pycountry.countries:
-            for name in [
-                getattr(c, "name", None),
-                getattr(c, "official_name", None),
-                getattr(c, "common_name", None),
-            ]:
+            for name in [getattr(c, "name", None), getattr(c, "official_name", None), getattr(c, "common_name", None)]:
                 if not name:
                     continue
                 out.add(COUNTRY_ABBREV.get(name, name))
     except Exception:
         out |= {
-            "Canada",
-            "Mexico",
-            "Brazil",
-            "Argentina",
-            "Norway",
-            "Netherlands",
-            "Germany",
-            "France",
-            "Italy",
-            "Spain",
-            "India",
-            "China",
-            "Japan",
-            "Korea",
-            "Australia",
-            "Saudi Arabia",
-            "Qatar",
-            "Kuwait",
-            "Iraq",
-            "Iran",
-            "Oman",
-            "Egypt",
-            "Nigeria",
-            "Malaysia",
-            "Greece",
+            "Canada", "Mexico", "Brazil", "Argentina", "Norway", "Netherlands", "Germany",
+            "France", "Italy", "Spain", "India", "China", "Japan", "Korea", "Australia",
+            "Saudi Arabia", "Qatar", "Kuwait", "Iraq", "Iran", "Oman", "Egypt", "Nigeria",
+            "Malaysia", "Greece",
         }
     return out
 
@@ -287,13 +218,19 @@ def extract_countries_from_tags(tags: List[str], country_set: Set[str]) -> List[
 
 
 # -------------------
-# Data loading
+# Data loading (cache keyed by mtime)
 # -------------------
 @st.cache_data(show_spinner=False)
-def load_csv(path: Path) -> pd.DataFrame:
+def load_csv_cached(path_str: str, mtime: float) -> pd.DataFrame:
+    path = Path(path_str)
     if not path.exists():
         return pd.DataFrame()
     return pd.read_csv(path)
+
+
+def load_csv(path: Path) -> pd.DataFrame:
+    mtime = path.stat().st_mtime if path.exists() else 0.0
+    return load_csv_cached(str(path), mtime)
 
 
 def safe_mtime(path: Path) -> datetime | None:
@@ -361,6 +298,25 @@ def fmt_date(x) -> str:
         return ""
 
 
+def ensure_column(frame: pd.DataFrame, col: str, kind: str) -> None:
+    """
+    kind:
+      - "str": fill with ""
+      - "list": fill with UNIQUE empty lists per row
+      - "dt": fill with NaT
+    """
+    if col in frame.columns:
+        return
+    if kind == "str":
+        frame[col] = ["" for _ in range(len(frame))]
+    elif kind == "list":
+        frame[col] = [[] for _ in range(len(frame))]  # IMPORTANT: unique lists
+    elif kind == "dt":
+        frame[col] = pd.NaT
+    else:
+        frame[col] = ""
+
+
 def main() -> None:
     st.set_page_config(page_title="Oil & Gas News Explorer", layout="wide")
     st.title("Oil & Gas News Explorer")
@@ -395,30 +351,25 @@ def main() -> None:
     col_source = "source"  # forced above
     col_published = pick_col(df, ["published_date", "published", "date"])
     col_scraped = pick_col(df, ["scraped_at"])
-    col_tags = pick_col(df, ["tags", "tag"])
-    col_topics = pick_col(df, ["topics", "topic"])
+    col_tags = pick_col(df, ["tags", "tag"]) or "tags"
+    col_topics = pick_col(df, ["topics", "topic"]) or "topics"
     col_excerpt = pick_col(df, ["excerpt", "summary", "description", "deck", "teaser", "subtitle"])
 
-    # Ensure required columns exist
-    for c in [col_title, col_url, col_source]:
-        if c not in df.columns:
-            df[c] = ""
+    # Ensure minimal columns exist
+    ensure_column(df, col_title, "str")
+    ensure_column(df, col_url, "str")
+    ensure_column(df, col_source, "str")
+    ensure_column(df, col_tags, "list")
+    ensure_column(df, col_topics, "list")
 
-    if col_tags is None:
-        df["tags"] = [[] for _ in range(len(df))]
-        col_tags = "tags"
-    if col_topics is None:
-        df["topics"] = [[] for _ in range(len(df))]
-        col_topics = "topics"
-
-    # Parse list-like columns
+    # Parse list-like columns safely
     df[col_tags] = df[col_tags].apply(_parse_listish)
     df[col_topics] = df[col_topics].apply(_parse_listish)
 
-    # Normalize tags/topics
+    # Normalize tags/topics PER ROW (no shared lists)
     def normalize_tags_list(tags: List[str]) -> List[str]:
         out: List[str] = []
-        for t in tags:
+        for t in tags or []:
             raw = _normalize_text(t)
             if not raw:
                 continue
@@ -427,8 +378,10 @@ def main() -> None:
                 out.append(canonical_map[key])
             else:
                 out.append(normalize_phrase(raw, acronyms))
+
+        # dedupe preserve order
         seen = set()
-        deduped = []
+        deduped: List[str] = []
         for x in out:
             if x not in seen:
                 seen.add(x)
@@ -437,12 +390,12 @@ def main() -> None:
 
     def normalize_topics_list(topics: List[str]) -> List[str]:
         out: List[str] = []
-        for t in topics:
+        for t in topics or []:
             raw = _normalize_text(t)
             if raw:
                 out.append(normalize_phrase(raw, acronyms))
         seen = set()
-        deduped = []
+        deduped: List[str] = []
         for x in out:
             if x not in seen:
                 seen.add(x)
@@ -458,14 +411,9 @@ def main() -> None:
     )
     df["title_norm"] = df[col_title].apply(lambda x: _normalize_text(x))
 
-    df["published_dt"] = (
-        pd.to_datetime(df[col_published], errors="coerce") if col_published and col_published in df.columns else pd.NaT
-    )
-    df["scraped_dt"] = (
-        pd.to_datetime(df[col_scraped], errors="coerce") if col_scraped and col_scraped in df.columns else pd.NaT
-    )
+    df["published_dt"] = pd.to_datetime(df[col_published], errors="coerce") if col_published and col_published in df.columns else pd.NaT
+    df["scraped_dt"] = pd.to_datetime(df[col_scraped], errors="coerce") if col_scraped and col_scraped in df.columns else pd.NaT
 
-    # Rank sources for tie-breaking (optional)
     if PREFER_JPT_ON_TIES:
         df["_source_rank"] = df[col_source].map({"JPT": 0, "WorldOil": 1}).fillna(9).astype(int)
     else:
@@ -475,30 +423,24 @@ def main() -> None:
     # Sidebar (order matters)
     # -------------------
     sources_all = sorted([s for s in df["source_norm"].dropna().unique().tolist() if _normalize_text(s)])
-
     default_sources = [s for s in DEFAULT_SOURCES if s in sources_all] or sources_all
-    sel_sources = st.sidebar.multiselect("Sources", sources_all, default=default_sources)
 
+    sel_sources = st.sidebar.multiselect("Sources", sources_all, default=default_sources)
     filtered = df[df["source_norm"].isin(sel_sources)].copy()
 
-    # ---- Ensure derived columns exist on filtered (cache/schema safe) ----
-    for col, default in {
-        "topics_norm": [[]],
-        "tags_norm": [[]],
-        "countries": [[]],
-        "title_norm": [""],
-        "source_norm": [""],
-        "published_dt": [pd.NaT],
-        "scraped_dt": [pd.NaT],
-    }.items():
+    # Ensure derived cols exist post-filter (safety)
+    for col, kind in [
+        ("tags_norm", "list"),
+        ("topics_norm", "list"),
+        ("countries", "list"),
+        ("title_norm", "str"),
+        ("source_norm", "str"),
+        ("published_dt", "dt"),
+        ("scraped_dt", "dt"),
+        ("_source_rank", "str"),  # harmless if missing
+    ]:
         if col not in filtered.columns:
-            # broadcast correct length
-            if default == [[]]:
-                filtered[col] = [[] for _ in range(len(filtered))]
-            elif default == [""]:
-                filtered[col] = ["" for _ in range(len(filtered))]
-            else:
-                filtered[col] = default[0]
+            ensure_column(filtered, col, "list" if kind == "list" else ("dt" if kind == "dt" else "str"))
 
     # --- Published date range (SAFE: doesn't remove rows without a date)
     dt_series = pd.to_datetime(filtered["published_dt"], errors="coerce")
@@ -538,10 +480,10 @@ def main() -> None:
 
     q = st.sidebar.text_input("Search", value="").strip()
 
-    # Display (bottom)
+    # Display controls
     st.sidebar.markdown("---")
     st.sidebar.subheader("Display")
-    page_size = st.sidebar.selectbox("Page size", [10, 25, 50, 100], index=3)
+    page_size = st.sidebar.selectbox("Page size", [10, 25, 50, 100], index=PAGE_SIZE_DEFAULT_INDEX)
     excerpt_len = st.sidebar.slider("Excerpt length", 120, 600, 320, 20)
     show_excerpt = st.sidebar.toggle("Show excerpt", value=True)
 
@@ -565,23 +507,20 @@ def main() -> None:
         filtered = filtered[title_hit | excerpt_hit]
 
     # Sort newest first (with optional JPT tie-breaker)
-    sort_cols = []
-    ascending = []
+    sort_cols: List[str] = []
+    ascending: List[bool] = []
 
-    if "published_dt" in filtered.columns:
-        sort_cols.append("published_dt")
-        ascending.append(False)
+    sort_cols.append("published_dt")
+    ascending.append(False)
 
     if PREFER_JPT_ON_TIES and "_source_rank" in filtered.columns:
         sort_cols.append("_source_rank")
         ascending.append(True)
 
-    if "scraped_dt" in filtered.columns:
-        sort_cols.append("scraped_dt")
-        ascending.append(False)
+    sort_cols.append("scraped_dt")
+    ascending.append(False)
 
-    if sort_cols:
-        filtered = filtered.sort_values(by=sort_cols, ascending=ascending, kind="mergesort")
+    filtered = filtered.sort_values(by=sort_cols, ascending=ascending, kind="mergesort")
 
     total = len(filtered)
     st.caption(f"Showing {total:,} results")
@@ -708,4 +647,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
