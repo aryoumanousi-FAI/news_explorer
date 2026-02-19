@@ -464,91 +464,171 @@ def main() -> None:
     page_df = filtered.iloc[start:end].copy()
 
     # -------------------
-    # Build display table
-    # -------------------
+# Card UI helpers
+# -------------------
+def join_list(xs):
+    if not xs:
+        return ""
+    if isinstance(xs, list):
+        return ", ".join([str(x) for x in xs if str(x).strip()])
+    return ""
 
-    def join_list(xs):
-        if not xs:
-            return ""
-        if isinstance(xs, list):
-            return ", ".join([str(x) for x in xs if str(x).strip()])
+def fmt_dt(x) -> str:
+    if pd.isna(x):
+        return ""
+    try:
+        return pd.to_datetime(x).strftime("%Y-%m-%d")
+    except Exception:
         return ""
 
-    def make_clickable(url: str) -> str:
-        u = html.escape(_normalize_text(url))
-        if not u:
-            return ""
-        return f'<a href="{u}" target="_blank" rel="noopener noreferrer">Open</a>'
+def truncate(s: str, n: int = 260) -> str:
+    s = _normalize_text(s)
+    if not s:
+        return ""
+    return s if len(s) <= n else s[: n - 1].rstrip() + "…"
 
-    # Clean columns
-    page_df["Topics_clean"] = page_df["topics_norm"].apply(join_list)
-    page_df["Tags_clean"] = page_df["tags_norm"].apply(join_list)
-    page_df["Countries_clean"] = page_df["countries"].apply(join_list)
+def chip_row(items: list[str]) -> str:
+    # Render list items as small “pills”
+    if not items:
+        return ""
+    safe = [html.escape(_normalize_text(x)) for x in items if _normalize_text(x)]
+    if not safe:
+        return ""
+    return "".join([f'<span class="chip">{x}</span>' for x in safe])
 
-    # Title column
-    page_df["Title"] = page_df["title_norm"]
+def safe_get(row, colname: str) -> str:
+    v = row.get(colname, "")
+    return "" if v is None or (isinstance(v, float) and pd.isna(v)) else str(v)
 
-    # Excerpt column (auto-detect common names)
-    excerpt_col = pick_col(df, ["excerpt", "summary", "description"])
+# detect excerpt column once (works for both JPT + WorldOil)
+excerpt_col = pick_col(df, ["excerpt", "summary", "description"])
+
+# -------------------
+# Styling
+# -------------------
+st.markdown(
+    """
+    <style>
+      .news-wrap { max-width: 1150px; margin: 0 auto; }
+      .news-card {
+        border: 1px solid rgba(49, 51, 63, 0.2);
+        border-radius: 14px;
+        padding: 14px 16px;
+        margin: 12px 0;
+        background: rgba(255, 255, 255, 0.02);
+      }
+      .news-title {
+        font-size: 20px;
+        line-height: 1.25;
+        font-weight: 750;
+        margin: 0 0 6px 0;
+      }
+      .news-title a {
+        text-decoration: none;
+      }
+      .news-title a:hover {
+        text-decoration: underline;
+      }
+      .news-meta {
+        font-size: 13px;
+        opacity: 0.85;
+        margin: 0 0 10px 0;
+      }
+      .news-excerpt {
+        font-size: 15px;
+        line-height: 1.5;
+        margin: 0 0 10px 0;
+        opacity: 0.95;
+      }
+      .chip {
+        display: inline-block;
+        font-size: 12px;
+        padding: 3px 9px;
+        border-radius: 999px;
+        border: 1px solid rgba(49, 51, 63, 0.22);
+        margin: 0 6px 6px 0;
+        white-space: nowrap;
+      }
+      .chip-label {
+        font-size: 12px;
+        font-weight: 650;
+        opacity: 0.8;
+        margin: 4px 10px 6px 0;
+        display: inline-block;
+      }
+      hr.soft {
+        border: none;
+        border-top: 1px solid rgba(49, 51, 63, 0.12);
+        margin: 14px 0;
+      }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# -------------------
+# Render cards
+# -------------------
+st.markdown('<div class="news-wrap">', unsafe_allow_html=True)
+
+for _, r in page_df.iterrows():
+    url = _normalize_text(safe_get(r, col_url))
+    title = _normalize_text(safe_get(r, "title_norm") or safe_get(r, col_title))
+    source = _normalize_text(safe_get(r, "source_norm") or safe_get(r, col_source))
+    published = fmt_dt(safe_get(r, "published_dt"))
+
+    # excerpt
+    excerpt = ""
     if excerpt_col and excerpt_col in page_df.columns:
-        page_df["Excerpt"] = page_df[excerpt_col].fillna("").apply(lambda x: str(x).strip())
-    else:
-        page_df["Excerpt"] = ""
+        excerpt = truncate(safe_get(r, excerpt_col), 320)
 
-    # Clickable link column
-    page_df["Link"] = page_df[col_url].apply(make_clickable)
+    # list fields (already normalized earlier in your app)
+    topics = r.get("topics_norm", []) or []
+    tags = r.get("tags_norm", []) or []
+    countries = r.get("countries", []) or []
 
-    # Format date
-    def fmt_dt(x) -> str:
-        if pd.isna(x):
-            return ""
-        try:
-            return pd.to_datetime(x).strftime("%Y-%m-%d")
-        except Exception:
-            return ""
+    title_html = html.escape(title) if title else "Untitled"
+    url_html = html.escape(url)
 
-    page_df["Published"] = page_df["published_dt"].apply(fmt_dt)
-
-    # Final columns (clean, no brackets)
-    display = page_df[
-        [
-            "Published",
-            "source_norm",
-            "Title",
-            "Excerpt",
-            "Link",
-            "Topics_clean",
-            "Tags_clean",
-            "Countries_clean",
-        ]
-    ].rename(
-        columns={
-            "source_norm": "Source",
-            "Topics_clean": "Topics",
-            "Tags_clean": "Tags",
-            "Countries_clean": "Countries",
-        }
+    # Title is clickable
+    title_block = (
+        f'<div class="news-title"><a href="{url_html}" target="_blank" rel="noopener noreferrer">{title_html}</a></div>'
+        if url
+        else f'<div class="news-title">{title_html}</div>'
     )
 
-    # -------------------
-    # Render HTML table
-    # -------------------
+    meta_parts = [p for p in [published, source] if p]
+    meta = " • ".join(meta_parts)
+
+    excerpt_html = f'<div class="news-excerpt">{html.escape(excerpt)}</div>' if excerpt else ""
+
+    chips_topics = chip_row(topics)
+    chips_tags = chip_row(tags)
+    chips_countries = chip_row(countries)
+
+    chips_html = ""
+    if chips_topics:
+        chips_html += f'<div><span class="chip-label">Topics</span>{chips_topics}</div>'
+    if chips_tags:
+        chips_html += f'<div><span class="chip-label">Tags</span>{chips_tags}</div>'
+    if chips_countries:
+        chips_html += f'<div><span class="chip-label">Countries</span>{chips_countries}</div>'
 
     st.markdown(
-        """
-        <style>
-        table { width: 100%; border-collapse: collapse; }
-        th { font-weight: 700 !important; text-align: center !important; }
-        td { vertical-align: top; }
-        td:first-child { white-space: nowrap; }  /* Published */
-        </style>
+        f"""
+        <div class="news-card">
+          {title_block}
+          <div class="news-meta">{html.escape(meta)}</div>
+          {excerpt_html}
+          {chips_html}
+        </div>
         """,
         unsafe_allow_html=True,
     )
 
-    st.write(display.to_html(escape=False, index=False), unsafe_allow_html=True)
-
+st.markdown("</div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
+
 
