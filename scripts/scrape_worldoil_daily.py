@@ -4,7 +4,6 @@ import os
 import subprocess
 from pathlib import Path
 
-
 SCRIPTS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPTS_DIR.parent
 
@@ -13,7 +12,10 @@ DATA_DIR = SCRAPY_ROOT / "data"
 
 DAILY_CSV = DATA_DIR / "worldoil_daily.csv"
 
-SPIDERS = os.getenv("SPIDERS", "worldoil_news")  # only worldoil spiders
+# ---- WORLDOIL ONLY ----
+ALLOWED_WORLDOIL_SPIDERS = {"worldoil_news"}  # add other WorldOil spiders here if you have them
+
+SPIDERS = os.getenv("SPIDERS", "worldoil_news")
 MAX_PAGES = int(os.getenv("MAX_PAGES", "10"))
 
 STOP_AT_LAST_DATE = int(os.getenv("STOP_AT_LAST_DATE", "1"))
@@ -38,6 +40,12 @@ def main() -> None:
     spiders = [s.strip() for s in SPIDERS.split(",") if s.strip()]
     if not spiders:
         raise ValueError("SPIDERS env var is empty.")
+
+    bad = [s for s in spiders if s not in ALLOWED_WORLDOIL_SPIDERS]
+    if bad:
+        raise ValueError(
+            f"WorldOil-only script: disallowed spiders: {bad}. Allowed: {sorted(ALLOWED_WORLDOIL_SPIDERS)}"
+        )
 
     if DAILY_CSV.exists():
         DAILY_CSV.unlink()
