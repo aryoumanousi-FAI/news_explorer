@@ -35,7 +35,7 @@ import streamlit as st
 # Config
 # -------------------
 JPT_PATH = Path("jpt_scraper/data/jpt.csv")
-WORLDOIL_PATH = Path("jpt_scraper/data/worldoil_full.csv")
+WORLDOIL_PATH = Path("jpt_scraper/data/worldoil.csv")
 ALL_TAGS_PATH = Path("all_tags.csv")  # must contain column: tag
 
 
@@ -609,3 +609,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
