@@ -180,6 +180,7 @@ class JptLatestSpider(scrapy.Spider):
             tags = response.css("div.ArticlePage-tags-container a[href*='/tag/']::text").getall()
 
         yield JptScraperItem(
+            source="jpt",
             url=url,
             title=title,
             excerpt=excerpt,
@@ -189,3 +190,4 @@ class JptLatestSpider(scrapy.Spider):
             scraped_at=datetime.now(timezone.utc).isoformat(),
             refresh_existing=self.refresh_existing,
         )
+
