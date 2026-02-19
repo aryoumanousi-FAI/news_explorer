@@ -1,21 +1,74 @@
-# JPT
-- name: Scrape JPT daily
-  run: python scripts/scrape_daily.py   # your existing one
+name: Daily Scrape (JPT + WorldOil)
 
-- name: Merge JPT
-  run: python scripts/merge.py          # your existing one
+on:
+  workflow_dispatch:
+  schedule:
+    # daily at 06:30 UTC (~10:30pm PT previous day during PST; adjust if you want)
+    - cron: "30 6 * * *"
 
-# WorldOil
-- name: Scrape WorldOil daily
-  run: python scripts/scrape_worldoil_daily.py
+permissions:
+  contents: write
 
-- name: Merge WorldOil into full
-  run: python scripts/merge_worldoil.py
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
 
-- name: Commit datasets
-  run: |
-    git config user.name "github-actions[bot]"
-    git config user.email "github-actions[bot]@users.noreply.github.com"
-    git add jpt_scraper/data/jpt.csv jpt_scraper/data/worldoil_full.csv
-    git commit -m "Daily scrape update" || echo "No changes to commit"
-    git push
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          if [ -f jpt_scraper/requirements.txt ]; then pip install -r jpt_scraper/requirements.txt; fi
+
+      # -------------------------
+      # JPT pipeline (unchanged)
+      # -------------------------
+      - name: Scrape JPT daily
+        env:
+          SPIDERS: "jpt_latest"
+          MAX_PAGES: "10"
+          STOP_AT_LAST_DATE: "1"
+          MERGED_CSV_PATH: "jpt_scraper/data/jpt.csv"
+        run: |
+          python scripts/scrape_new.py
+
+      - name: Merge JPT (rebuild jpt.csv)
+        run: |
+          python scripts/merge_three_way.py
+
+      # -------------------------
+      # WorldOil pipeline (separate)
+      # -------------------------
+      - name: Scrape WorldOil daily
+        env:
+          SPIDERS: "worldoil_news"
+          MAX_PAGES: "10"
+          STOP_AT_LAST_DATE: "1"
+          FULL_CSV_PATH: "jpt_scraper/data/worldoil_full.csv"
+        run: |
+          python scripts/scrape_worldoil_daily.py
+
+      - name: Merge WorldOil (update worldoil_full.csv)
+        run: |
+          python scripts/merge_worldoil.py
+
+      # -------------------------
+      # Commit outputs
+      # -------------------------
+      - name: Commit updated CSVs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add jpt_scraper/data/jpt.csv jpt_scraper/data/worldoil_full.csv
+
+          git commit -m "Daily news update" || echo "No changes to commit"
+          git push
