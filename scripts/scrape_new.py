@@ -19,8 +19,7 @@ SPIDERS = os.getenv("SPIDERS", "jpt_latest")
 MAX_PAGES = int(os.getenv("MAX_PAGES", "10"))
 
 STOP_AT_LAST_DATE = int(os.getenv("STOP_AT_LAST_DATE", "1"))
-MERGED_CSV_PATH = os.getenv("MERGED_CSV_PATH", str(DATA_DIR / "jpt.csv"))
-
+MERGED_CSV_PATH = os.getenv("JPT_MERGED_CSV_PATH", str(DATA_DIR / "jpt.csv"))
 
 def run_spider(spider: str, mode: str) -> None:
     """
