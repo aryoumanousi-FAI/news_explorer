@@ -15,11 +15,13 @@ DAILY_CSV = DATA_DIR / "jpt_daily.csv"
 # ---- JPT ONLY ----
 ALLOWED_JPT_SPIDERS = {"jpt_latest"}  # add other JPT spiders here if you have them
 
-SPIDERS = os.getenv("SPIDERS", "jpt_latest")
-MAX_PAGES = int(os.getenv("MAX_PAGES", "10"))
-
-STOP_AT_LAST_DATE = int(os.getenv("STOP_AT_LAST_DATE", "1"))
+# Change these lines to be JPT-specific
+SPIDERS = os.getenv("JPT_SPIDERS", "jpt_latest")
+MAX_PAGES = int(os.getenv("JPT_MAX_PAGES", "10"))
+STOP_AT_LAST_DATE = int(os.getenv("JPT_STOP_AT_LAST_DATE", "1"))
+# This is the critical one:
 MERGED_CSV_PATH = os.getenv("JPT_MERGED_CSV_PATH", str(DATA_DIR / "jpt.csv"))
+
 
 def run_spider(spider: str, mode: str) -> None:
     """
