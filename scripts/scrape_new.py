@@ -14,7 +14,7 @@ DATA_DIR = SCRAPY_ROOT / "data"
 DAILY_CSV = DATA_DIR / "jpt_daily.csv"
 
 # Comma-separated list of spiders to run into the same daily CSV
-SPIDERS = os.getenv("SPIDERS", "jpt_latest,worldoil_news")
+SPIDERS = os.getenv("SPIDERS", "jpt_latest")
 MAX_PAGES = int(os.getenv("MAX_PAGES", "10"))
 
 # Optional hard-stop against the merged CSV (so you only fetch new pages)
