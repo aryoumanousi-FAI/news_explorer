@@ -481,6 +481,25 @@ def main() -> None:
 
     filtered = df[df["source_norm"].isin(sel_sources)].copy()
 
+    # ---- Ensure derived columns exist on filtered (cache/schema safe) ----
+    for col, default in {
+        "topics_norm": [[]],
+        "tags_norm": [[]],
+        "countries": [[]],
+        "title_norm": [""],
+        "source_norm": [""],
+        "published_dt": [pd.NaT],
+        "scraped_dt": [pd.NaT],
+    }.items():
+        if col not in filtered.columns:
+            # broadcast correct length
+            if default == [[]]:
+                filtered[col] = [[] for _ in range(len(filtered))]
+            elif default == [""]:
+                filtered[col] = ["" for _ in range(len(filtered))]
+            else:
+                filtered[col] = default[0]
+
     # --- Published date range (SAFE: doesn't remove rows without a date)
     dt_series = pd.to_datetime(filtered["published_dt"], errors="coerce")
     has_date = dt_series.notna()
@@ -689,3 +708,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
