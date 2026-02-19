@@ -1,7 +1,9 @@
-name: Daily JPT scrape and merge
+# .github/workflows/daily_scrape.yml
+name: Daily JPT + WorldOil scrape and merge
 
 on:
   schedule:
+    # 14:00 UTC daily
     - cron: "0 14 * * *"
   workflow_dispatch:
 
@@ -26,7 +28,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Scrape daily data (overwrite jpt_daily.csv)
+      - name: Scrape daily data (JPT + WorldOil) into jpt_daily.csv
+        env:
+          # run both spiders daily
+          SPIDERS: "jpt_latest,worldoil_news"
+          # keep this light; hard-stop prevents paging deep once history exists
+          MAX_PAGES: "10"
+          STOP_AT_LAST_DATE: "1"
         run: |
           python scripts/scrape_new.py
 
@@ -45,6 +53,6 @@ jobs:
           if git diff --staged --quiet; then
             echo "No changes to commit."
           else
-            git commit -m "Auto-update: JPT daily + merged [skip ci]"
+            git commit -m "Auto-update: daily scrape + merged [skip ci]"
             git push
           fi
