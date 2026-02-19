@@ -414,54 +414,83 @@ def main() -> None:
     df["scraped_dt"] = pd.to_datetime(df[col_scraped], errors="coerce") if col_scraped and col_scraped in df.columns else pd.NaT
 
     # -------------------
-    # Sidebar filters
-    # -------------------
-    st.sidebar.header("Filters")
+# Sidebar Layout
+# -------------------
 
-    topics_and = st.sidebar.toggle("Topics: AND match", value=False)
-    tags_and = st.sidebar.toggle("Tags: AND match", value=False)
-    countries_and = st.sidebar.toggle("Countries: AND match", value=False)
+# --- Sources
+sources_all = sorted([s for s in df["source_norm"].dropna().unique().tolist() if _normalize_text(s)])
+default_sources = sources_all[:]
+sel_sources = st.sidebar.multiselect("Sources", sources_all, default=default_sources)
 
-    # Sources
-    sources_all = sorted([s for s in df["source_norm"].dropna().unique().tolist() if _normalize_text(s)])
-    default_sources = sources_all[:]  # all
-    sel_sources = st.sidebar.multiselect("Sources", sources_all, default=default_sources)
+filtered = df[df["source_norm"].isin(sel_sources)].copy()
 
-    filtered = df[df["source_norm"].isin(sel_sources)].copy()
+# --- Topics
+topics_mode = st.sidebar.radio("Topics match mode", ["OR", "AND"], horizontal=True)
+topics_all = sorted({t for row in filtered["topics_norm"] for t in (row or [])})
+sel_topics = st.sidebar.multiselect("Topics", topics_all)
 
-    # Topic options from remaining
-    topics_all = sorted({t for row in filtered["topics_norm"] for t in (row or [])})
-    sel_topics = st.sidebar.multiselect("Topics", topics_all, default=[])
+# --- Tags
+tags_mode = st.sidebar.radio("Tags match mode", ["OR", "AND"], horizontal=True)
+tags_all = sorted({t for row in filtered["tags_norm"] for t in (row or [])})
+sel_tags = st.sidebar.multiselect("Tags", tags_all)
 
-    # Tag options from remaining
-    tags_all = sorted({t for row in filtered["tags_norm"] for t in (row or [])})
-    sel_tags = st.sidebar.multiselect("Tags", tags_all, default=[])
+# --- Countries
+countries_mode = st.sidebar.radio("Countries match mode", ["OR", "AND"], horizontal=True)
+countries_all = sorted({c for row in filtered["countries"] for c in (row or [])})
+sel_countries = st.sidebar.multiselect("Countries", countries_all)
 
-    # Countries options from remaining
-    countries_all = sorted({c for row in filtered["countries"] for c in (row or [])})
-    sel_countries = st.sidebar.multiselect("Countries", countries_all, default=[])
+# --- Search
+q = st.sidebar.text_input("Search", value="").strip()
 
-    # Apply list filters
-    filtered = filtered[filtered["topics_norm"].apply(lambda xs: match_list(xs or [], sel_topics, topics_and))]
-    filtered = filtered[filtered["tags_norm"].apply(lambda xs: match_list(xs or [], sel_tags, tags_and))]
-    filtered = filtered[filtered["countries"].apply(lambda xs: match_list(xs or [], sel_countries, countries_and))]
 
-    # Search (title + excerpt)
-    q = st.sidebar.text_input("Search", value="").strip()
-    if q:
-        pattern = re.escape(q)
-        title_hit = filtered["title_norm"].fillna("").str.contains(pattern, case=False, na=False)
-        if col_excerpt and col_excerpt in filtered.columns:
-            excerpt_hit = filtered[col_excerpt].fillna("").astype(str).str.contains(pattern, case=False, na=False)
-        else:
-            excerpt_hit = pd.Series(False, index=filtered.index)
-        filtered = filtered[title_hit | excerpt_hit]
+# -------------------
+# Apply filters
+# -------------------
 
-    st.sidebar.divider()
-    st.sidebar.header("Display")
-    page_size = st.sidebar.selectbox("Page size", [10, 25, 50, 100], index=1)
-    show_excerpt = st.sidebar.toggle("Show excerpt", value=True)
-    excerpt_len = st.sidebar.slider("Excerpt length", 120, 600, 320, 20)
+def match_list(values, selected, mode):
+    if not selected:
+        return True
+    s = set(values or [])
+    if mode == "AND":
+        return all(x in s for x in selected)
+    return any(x in s for x in selected)
+
+
+filtered = filtered[
+    filtered["topics_norm"].apply(lambda xs: match_list(xs, sel_topics, topics_mode))
+]
+
+filtered = filtered[
+    filtered["tags_norm"].apply(lambda xs: match_list(xs, sel_tags, tags_mode))
+]
+
+filtered = filtered[
+    filtered["countries"].apply(lambda xs: match_list(xs, sel_countries, countries_mode))
+]
+
+# Search (title + excerpt)
+if q:
+    pattern = re.escape(q)
+    title_hit = filtered["title_norm"].fillna("").str.contains(pattern, case=False, na=False)
+
+    if col_excerpt and col_excerpt in filtered.columns:
+        excerpt_hit = filtered[col_excerpt].fillna("").astype(str).str.contains(pattern, case=False, na=False)
+    else:
+        excerpt_hit = pd.Series(False, index=filtered.index)
+
+    filtered = filtered[title_hit | excerpt_hit]
+
+
+# -------------------
+# Display section (bottom)
+# -------------------
+st.sidebar.markdown("---")
+st.sidebar.subheader("Display")
+
+page_size = st.sidebar.selectbox("Page size", [10, 25, 50, 100], index=3)
+excerpt_len = st.sidebar.slider("Excerpt length", 120, 600, 320, 20)
+show_excerpt = st.sidebar.toggle("Show excerpt", value=True)
+
 
     # Sort newest first
     sort_cols = []
@@ -593,6 +622,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 
 
 
