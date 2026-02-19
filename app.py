@@ -265,3 +265,245 @@ def normalize_tags_list(tags: List[str], canonical_map: Dict[str, str], acronyms
             continue
         key = raw.lower()
         if key in canonical_map:
+            out.append(canonical_map[key])
+        else:
+            out.append(normalize_phrase(raw, acronyms))
+    # de-dupe while preserving order
+    seen = set()
+    deduped = []
+    for x in out:
+        if x not in seen:
+            seen.add(x)
+            deduped.append(x)
+    return deduped
+
+
+def normalize_topics_list(topics: List[str], acronyms: Set[str]) -> List[str]:
+    out: List[str] = []
+    for t in topics:
+        raw = _normalize_text(t)
+        if not raw:
+            continue
+        out.append(normalize_phrase(raw, acronyms))
+    # de-dupe preserving order
+    seen = set()
+    deduped = []
+    for x in out:
+        if x not in seen:
+            seen.add(x)
+            deduped.append(x)
+    return deduped
+
+
+def compute_last_updated_banner(jpt_df: pd.DataFrame, wo_df: pd.DataFrame) -> str:
+    mtimes = [safe_mtime(JPT_PATH), safe_mtime(WORLDOIL_PATH)]
+    mtimes = [m for m in mtimes if m is not None]
+    mtime_str = max(mtimes).strftime("%Y-%m-%d %H:%M:%S") if mtimes else "N/A"
+
+    latest = [latest_scraped_at(jpt_df), latest_scraped_at(wo_df)]
+    latest = [x for x in latest if x is not None]
+    latest_str = max(latest).strftime("%Y-%m-%d %H:%M:%S") if latest else "N/A"
+
+    return f"**Last updated:** file mtime = {mtime_str} | latest scraped_at = {latest_str}"
+
+
+def match_list(values: List[str], selected: List[str], mode_and: bool) -> bool:
+    """Return True if row matches selected list. If no selections, True."""
+    if not selected:
+        return True
+    s = set(values or [])
+    if mode_and:
+        return all(x in s for x in selected)
+    return any(x in s for x in selected)
+
+
+def main() -> None:
+    st.set_page_config(page_title="JPT + WorldOil News Explorer", layout="wide")
+    st.title("JPT + WorldOil News Explorer")
+
+    # Load
+    jpt = load_csv(JPT_PATH)
+    wo = load_csv(WORLDOIL_PATH)
+
+    if not jpt.empty and "source" not in jpt.columns:
+        jpt["source"] = "JPT"
+    if not wo.empty and "source" not in wo.columns:
+        wo["source"] = "WorldOil"
+
+    # Combine
+    df = pd.concat([jpt, wo], ignore_index=True)
+
+    # Banner
+    st.markdown(compute_last_updated_banner(jpt, wo))
+
+    if df.empty:
+        st.info("No data found yet. Make sure the CSVs exist and the workflows have run.")
+        return
+
+    # Master tags + acronym set + canonical tag mapping
+    master_tags = load_master_tags(ALL_TAGS_PATH)
+    acronyms = build_acronym_set(master_tags)
+    canonical_map = build_canonical_tag_map(master_tags, acronyms)
+
+    country_set = build_country_set_cached()
+
+    # Identify column names (supports small schema differences)
+    col_title = pick_col(df, ["title", "headline"]) or "title"
+    col_url = pick_col(df, ["url", "link", "article_url"]) or "url"
+    col_published = pick_col(df, ["published_date", "published", "date"])  # optional
+    col_scraped = pick_col(df, ["scraped_at"])  # optional
+    col_tags = pick_col(df, ["tags", "tag"])  # list-like
+    col_topics = pick_col(df, ["topics", "topic"])  # list-like
+    col_source = pick_col(df, ["source"]) or "source"
+
+    # Ensure required columns exist (avoid crashes)
+    for c in [col_title, col_url, col_source]:
+        if c not in df.columns:
+            df[c] = ""
+
+    if col_tags is None:
+        df["tags"] = [[] for _ in range(len(df))]
+        col_tags = "tags"
+    if col_topics is None:
+        df["topics"] = [[] for _ in range(len(df))]
+        col_topics = "topics"
+
+    # Parse + normalize list columns
+    df[col_tags] = df[col_tags].apply(_parse_listish)
+    df[col_topics] = df[col_topics].apply(_parse_listish)
+
+    df["tags_norm"] = df[col_tags].apply(lambda xs: normalize_tags_list(xs, canonical_map, acronyms))
+    df["topics_norm"] = df[col_topics].apply(lambda xs: normalize_topics_list(xs, acronyms))
+
+    # Countries derived from tags (plus manual US/UK/UAE already in set)
+    df["countries"] = df["tags_norm"].apply(lambda xs: sorted(extract_countries_from_tags(xs, country_set)))
+
+    # Normalize source display
+    df["source_norm"] = df[col_source].apply(lambda x: normalize_phrase(_normalize_text(x), acronyms) if _normalize_text(x) else "")
+
+    # Normalize title for display (but keep raw too)
+    df["title_norm"] = df[col_title].apply(lambda x: _normalize_text(x))
+
+    # Normalize dates
+    if col_published and col_published in df.columns:
+        df["published_dt"] = pd.to_datetime(df[col_published], errors="coerce")
+    else:
+        df["published_dt"] = pd.NaT
+
+    if col_scraped and col_scraped in df.columns:
+        df["scraped_dt"] = pd.to_datetime(df[col_scraped], errors="coerce")
+    else:
+        df["scraped_dt"] = pd.NaT
+
+    # -------------------
+    # Filters (cascading)
+    # -------------------
+    st.sidebar.header("Filters")
+
+    # Toggle AND/OR modes
+    topics_and = st.sidebar.toggle("Topics: AND match", value=False)
+    tags_and = st.sidebar.toggle("Tags: AND match", value=False)
+    countries_and = st.sidebar.toggle("Countries: AND match", value=False)
+
+    # Source filter
+    sources_all = sorted([s for s in df["source_norm"].dropna().unique().tolist() if _normalize_text(s)])
+    sel_sources = st.sidebar.multiselect("Sources", sources_all, default=sources_all)
+
+    # Apply sources first (cascade)
+    filtered = df[df["source_norm"].isin(sel_sources)].copy()
+
+    # Topic filter options from remaining
+    topics_all = sorted({t for row in filtered["topics_norm"] for t in (row or [])})
+    sel_topics = st.sidebar.multiselect("Topics", topics_all, default=[])
+
+    # Tag filter options from remaining (after topics selection too? keep cascade order)
+    tags_all = sorted({t for row in filtered["tags_norm"] for t in (row or [])})
+    sel_tags = st.sidebar.multiselect("Tags", tags_all, default=[])
+
+    # Country filter options
+    countries_all = sorted({c for row in filtered["countries"] for c in (row or [])})
+    sel_countries = st.sidebar.multiselect("Countries", countries_all, default=[])
+
+    # Apply list filters
+    filtered = filtered[
+        filtered["topics_norm"].apply(lambda xs: match_list(xs or [], sel_topics, topics_and))
+    ]
+    filtered = filtered[
+        filtered["tags_norm"].apply(lambda xs: match_list(xs or [], sel_tags, tags_and))
+    ]
+    filtered = filtered[
+        filtered["countries"].apply(lambda xs: match_list(xs or [], sel_countries, countries_and))
+    ]
+
+    # Search box (optional)
+    q = st.sidebar.text_input("Search title", value="").strip()
+    if q:
+        filtered = filtered[filtered["title_norm"].str.contains(re.escape(q), case=False, na=False)]
+
+    # Sort newest first (published_dt then scraped_dt)
+    sort_cols: List[str] = []
+    if "published_dt" in filtered.columns:
+        sort_cols.append("published_dt")
+    if "scraped_dt" in filtered.columns:
+        sort_cols.append("scraped_dt")
+
+    if sort_cols:
+        filtered = filtered.sort_values(by=sort_cols, ascending=[False] * len(sort_cols), kind="mergesort")
+
+    # -------------------
+    # Pagination
+    # -------------------
+    total = len(filtered)
+    st.caption(f"Showing {total:,} results")
+
+    max_page = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
+    page = st.number_input("Page", min_value=1, max_value=max_page, value=1, step=1)
+
+    start = (page - 1) * PAGE_SIZE
+    end = start + PAGE_SIZE
+    page_df = filtered.iloc[start:end].copy()
+
+    # Build display table with clickable title link
+    page_df["Link"] = page_df.apply(lambda r: make_link_html(str(r.get(col_url, "")), str(r.get("title_norm", ""))), axis=1)
+
+    # Format date column (single line)
+    def fmt_dt(x) -> str:
+        if pd.isna(x):
+            return ""
+        try:
+            return pd.to_datetime(x).strftime("%Y-%m-%d")
+        except Exception:
+            return ""
+
+    page_df["Published"] = page_df["published_dt"].apply(fmt_dt)
+
+    # Pick columns to display
+    show_cols = ["Published", "source_norm", "Link", "topics_norm", "tags_norm", "countries"]
+    display = page_df[show_cols].rename(
+        columns={
+            "source_norm": "Source",
+            "topics_norm": "Topics",
+            "tags_norm": "Tags",
+            "countries": "Countries",
+        }
+    )
+
+    # Render as HTML table to keep clickable links
+    # CSS: header bold + centered, date no wrap
+    st.markdown(
+        """
+        <style>
+        table { width: 100%; border-collapse: collapse; }
+        th { font-weight: 700 !important; text-align: center !important; }
+        td { vertical-align: top; }
+        td:first-child { white-space: nowrap; } /* Published */
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.write(display.to_html(escape=False, index=False), unsafe_allow_html=True)
+
+
+if __name__ == "__main__":
+    main()
