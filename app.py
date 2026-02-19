@@ -463,10 +463,42 @@ def main() -> None:
     end = start + PAGE_SIZE
     page_df = filtered.iloc[start:end].copy()
 
-    # Build display table with clickable title link
-    page_df["Link"] = page_df.apply(lambda r: make_link_html(str(r.get(col_url, "")), str(r.get("title_norm", ""))), axis=1)
+    # -------------------
+    # Build display table
+    # -------------------
 
-    # Format date column (single line)
+    def join_list(xs):
+        if not xs:
+            return ""
+        if isinstance(xs, list):
+            return ", ".join([str(x) for x in xs if str(x).strip()])
+        return ""
+
+    def make_clickable(url: str) -> str:
+        u = html.escape(_normalize_text(url))
+        if not u:
+            return ""
+        return f'<a href="{u}" target="_blank" rel="noopener noreferrer">Open</a>'
+
+    # Clean columns
+    page_df["Topics_clean"] = page_df["topics_norm"].apply(join_list)
+    page_df["Tags_clean"] = page_df["tags_norm"].apply(join_list)
+    page_df["Countries_clean"] = page_df["countries"].apply(join_list)
+
+    # Title column
+    page_df["Title"] = page_df["title_norm"]
+
+    # Excerpt column (auto-detect common names)
+    excerpt_col = pick_col(df, ["excerpt", "summary", "description"])
+    if excerpt_col and excerpt_col in page_df.columns:
+        page_df["Excerpt"] = page_df[excerpt_col].fillna("").apply(lambda x: str(x).strip())
+    else:
+        page_df["Excerpt"] = ""
+
+    # Clickable link column
+    page_df["Link"] = page_df[col_url].apply(make_clickable)
+
+    # Format date
     def fmt_dt(x) -> str:
         if pd.isna(x):
             return ""
@@ -477,26 +509,38 @@ def main() -> None:
 
     page_df["Published"] = page_df["published_dt"].apply(fmt_dt)
 
-    # Pick columns to display
-    show_cols = ["Published", "source_norm", "Link", "topics_norm", "tags_norm", "countries"]
-    display = page_df[show_cols].rename(
+    # Final columns (clean, no brackets)
+    display = page_df[
+        [
+            "Published",
+            "source_norm",
+            "Title",
+            "Excerpt",
+            "Link",
+            "Topics_clean",
+            "Tags_clean",
+            "Countries_clean",
+        ]
+    ].rename(
         columns={
             "source_norm": "Source",
-            "topics_norm": "Topics",
-            "tags_norm": "Tags",
-            "countries": "Countries",
+            "Topics_clean": "Topics",
+            "Tags_clean": "Tags",
+            "Countries_clean": "Countries",
         }
     )
 
-    # Render as HTML table to keep clickable links
-    # CSS: header bold + centered, date no wrap
+    # -------------------
+    # Render HTML table
+    # -------------------
+
     st.markdown(
         """
         <style>
         table { width: 100%; border-collapse: collapse; }
         th { font-weight: 700 !important; text-align: center !important; }
         td { vertical-align: top; }
-        td:first-child { white-space: nowrap; } /* Published */
+        td:first-child { white-space: nowrap; }  /* Published */
         </style>
         """,
         unsafe_allow_html=True,
@@ -507,3 +551,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
