@@ -409,6 +409,38 @@ def main() -> None:
 
     filtered = df[df["source_norm"].isin(sel_sources)].copy()
 
+    # --- Date range (Published)
+    min_dt = pd.to_datetime(filtered["published_dt"], errors="coerce").min()
+    max_dt = pd.to_datetime(filtered["published_dt"], errors="coerce").max()
+    
+    # Fallback if missing/empty
+    if pd.isna(min_dt) or pd.isna(max_dt):
+        min_date = datetime.today().date()
+        max_date = datetime.today().date()
+    else:
+        min_date = min_dt.date()
+        max_date = max_dt.date()
+    
+    date_range = st.sidebar.date_input(
+        "Published date range",
+        value=(min_date, max_date),
+        min_value=min_date,
+        max_value=max_date,
+    )
+    
+    # Streamlit can return a single date if user clicks once
+    if isinstance(date_range, tuple) and len(date_range) == 2:
+        start_date, end_date = date_range
+    else:
+        start_date = min_date
+        end_date = max_date
+    
+    # Apply date filter (inclusive)
+    filtered = filtered[
+        (filtered["published_dt"].dt.date >= start_date) &
+        (filtered["published_dt"].dt.date <= end_date)
+    ]
+
     topics_mode = st.sidebar.radio("Topics match mode", ["OR", "AND"], horizontal=True)
     topics_all = sorted({t for row in filtered["topics_norm"] for t in (row or [])})
     sel_topics = st.sidebar.multiselect("Topics", topics_all, default=[])
@@ -580,3 +612,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
