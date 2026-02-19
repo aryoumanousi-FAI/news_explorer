@@ -455,7 +455,7 @@ def main() -> None:
     filtered = filtered[filtered["countries"].apply(lambda xs: match_list(xs or [], sel_countries, countries_and))]
 
     # Search (title + excerpt)
-    q = st.sidebar.text_input("Search (title + excerpt)", value="").strip()
+    q = st.sidebar.text_input("Search", value="").strip()
     if q:
         pattern = re.escape(q)
         title_hit = filtered["title_norm"].fillna("").str.contains(pattern, case=False, na=False)
@@ -595,4 +595,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 
