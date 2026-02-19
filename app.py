@@ -421,7 +421,6 @@ def main() -> None:
     topics_and = st.sidebar.toggle("Topics: AND match", value=False)
     tags_and = st.sidebar.toggle("Tags: AND match", value=False)
     countries_and = st.sidebar.toggle("Countries: AND match", value=False)
-    st.sidebar.divider()
 
     # Sources
     sources_all = sorted([s for s in df["source_norm"].dropna().unique().tolist() if _normalize_text(s)])
@@ -594,6 +593,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 
 
 
