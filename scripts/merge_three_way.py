@@ -3,10 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 import pandas as pd
 
-
-# -------------------
-# PATHS
-# -------------------
 SCRIPTS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPTS_DIR.parent
 
@@ -15,7 +11,7 @@ DATA_DIR = SCRAPY_ROOT / "data"
 
 MASTER_CSV = DATA_DIR / "jpt_master.csv"   # NEVER touched
 DAILY_CSV = DATA_DIR / "jpt_daily.csv"     # Overwritten daily
-MERGED_CSV = DATA_DIR / "jpt.csv"           # Rebuilt every run
+MERGED_CSV = DATA_DIR / "jpt.csv"          # Rebuilt every run
 
 
 def load_csv(path: Path, label: str) -> pd.DataFrame:
@@ -38,18 +34,14 @@ def main() -> None:
         if not df.empty and "url" not in df.columns:
             raise ValueError(f"{name} CSV missing required 'url' column.")
 
-    # Combine: MASTER first, DAILY second
     combined = pd.concat([master_df, daily_df], ignore_index=True)
 
-    # Normalize datetimes if present
     if "scraped_at" in combined.columns:
         combined["scraped_at"] = pd.to_datetime(combined["scraped_at"], errors="coerce")
         combined = combined.sort_values("scraped_at", ascending=True, kind="mergesort")
 
-    # Deduplicate so DAILY wins on conflicts
     merged = combined.drop_duplicates(subset=["url"], keep="last")
 
-    # Optional final ordering
     if "published_date" in merged.columns:
         merged["published_date"] = pd.to_datetime(merged["published_date"], errors="coerce")
         sort_cols = ["published_date"] + (["scraped_at"] if "scraped_at" in merged.columns else [])
@@ -58,7 +50,6 @@ def main() -> None:
     elif "scraped_at" in merged.columns:
         merged = merged.sort_values("scraped_at", ascending=False, kind="mergesort")
 
-    # Atomic write (merged only)
     tmp = MERGED_CSV.with_suffix(".csv.tmp")
     merged.to_csv(tmp, index=False)
     tmp.replace(MERGED_CSV)
