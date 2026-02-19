@@ -5,13 +5,18 @@
 #
 # Features:
 # - Card UI (big clickable title, excerpt, chips)
-# - Filters: Sources, Topics, Tags, Countries, Search (title + excerpt)
+# - Filters (sidebar order): Sources, Published date range, Topics, Tags, Countries, Search
 # - AND/OR match mode for Topics/Tags/Countries
+# - Search hits title + excerpt
 # - Pagination
 # - “Last updated” banner (file mtime + latest scraped_at)
 # - Tag/topic normalization (Title Case + acronym preservation)
 # - Canonical tag mapping using all_tags.csv (case-insensitive; column: tag)
-# - Country filter derived from tags + manual US/UK/UAE support
+# - Countries derived from tags + manual US/UK/UAE support
+#
+# Notes:
+# - Forces source labels: JPT rows always show as "JPT", WorldOil rows always show as "WorldOil"
+# - Date range filter is “safe”: it filters rows with dates, but does NOT hide rows missing dates
 
 from __future__ import annotations
 
@@ -309,13 +314,12 @@ def main() -> None:
     jpt = load_csv(JPT_PATH)
     wo = load_csv(WORLDOIL_PATH)
 
-    # Add source labels if missing
-    if not jpt.empty and "source" not in jpt.columns:
+    # Force source labels so JPT never “disappears”
+    if not jpt.empty:
         jpt["source"] = "JPT"
-    if not wo.empty and "source" not in wo.columns:
+    if not wo.empty:
         wo["source"] = "WorldOil"
 
-    # Combine
     df = pd.concat([jpt, wo], ignore_index=True)
 
     st.markdown(compute_last_updated_banner(jpt, wo))
@@ -328,13 +332,12 @@ def main() -> None:
     master_tags = load_master_tags(ALL_TAGS_PATH)
     acronyms = build_acronym_set(master_tags)
     canonical_map = build_canonical_tag_map(master_tags, acronyms)
-
     country_set = build_country_set_cached()
 
     # Detect columns (schema-tolerant)
     col_title = pick_col(df, ["title", "headline"]) or "title"
     col_url = pick_col(df, ["url", "link", "article_url"]) or "url"
-    col_source = pick_col(df, ["source"]) or "source"
+    col_source = "source"  # forced above
     col_published = pick_col(df, ["published_date", "published", "date"])
     col_scraped = pick_col(df, ["scraped_at"])
     col_tags = pick_col(df, ["tags", "tag"])
@@ -402,44 +405,38 @@ def main() -> None:
     df["scraped_dt"] = pd.to_datetime(df[col_scraped], errors="coerce") if col_scraped and col_scraped in df.columns else pd.NaT
 
     # -------------------
-    # Sidebar (order matters!)
+    # Sidebar (order matters)
     # -------------------
     sources_all = sorted([s for s in df["source_norm"].dropna().unique().tolist() if _normalize_text(s)])
     sel_sources = st.sidebar.multiselect("Sources", sources_all, default=sources_all)
-
     filtered = df[df["source_norm"].isin(sel_sources)].copy()
 
-    # --- Date range (Published)
-    min_dt = pd.to_datetime(filtered["published_dt"], errors="coerce").min()
-    max_dt = pd.to_datetime(filtered["published_dt"], errors="coerce").max()
-    
-    # Fallback if missing/empty
-    if pd.isna(min_dt) or pd.isna(max_dt):
-        min_date = datetime.today().date()
-        max_date = datetime.today().date()
+    # --- Published date range (SAFE: doesn't remove rows without a date)
+    dt_series = pd.to_datetime(filtered["published_dt"], errors="coerce")
+    has_date = dt_series.notna()
+
+    if has_date.any():
+        min_date = dt_series[has_date].min().date()
+        max_date = dt_series[has_date].max().date()
+
+        date_range = st.sidebar.date_input(
+            "Published date range",
+            value=(min_date, max_date),
+            min_value=min_date,
+            max_value=max_date,
+        )
+
+        if isinstance(date_range, tuple) and len(date_range) == 2:
+            start_date, end_date = date_range
+        else:
+            start_date, end_date = min_date, max_date
+
+        filtered = filtered[
+            (~has_date) |
+            ((dt_series.dt.date >= start_date) & (dt_series.dt.date <= end_date))
+        ]
     else:
-        min_date = min_dt.date()
-        max_date = max_dt.date()
-    
-    date_range = st.sidebar.date_input(
-        "Published date range",
-        value=(min_date, max_date),
-        min_value=min_date,
-        max_value=max_date,
-    )
-    
-    # Streamlit can return a single date if user clicks once
-    if isinstance(date_range, tuple) and len(date_range) == 2:
-        start_date, end_date = date_range
-    else:
-        start_date = min_date
-        end_date = max_date
-    
-    # Apply date filter (inclusive)
-    filtered = filtered[
-        (filtered["published_dt"].dt.date >= start_date) &
-        (filtered["published_dt"].dt.date <= end_date)
-    ]
+        st.sidebar.caption("Published date range: (no dates available)")
 
     topics_mode = st.sidebar.radio("Topics match mode", ["OR", "AND"], horizontal=True)
     topics_all = sorted({t for row in filtered["topics_norm"] for t in (row or [])})
@@ -612,4 +609,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
