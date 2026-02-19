@@ -14,9 +14,9 @@ from __future__ import annotations
 import ast
 import html
 import re
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Tuple
 
 import pandas as pd
 import streamlit as st
@@ -25,7 +25,8 @@ import streamlit as st
 # -------------------
 # Config
 # -------------------
-DATA_PATH = Path("jpt_scraper/data/jpt.csv")
+JPT_PATH = Path("jpt_scraper/data/jpt.csv")
+WORLDOIL_PATH = Path("jpt_scraper/data/worldoil_full.csv")
 ALL_TAGS_PATH = Path("all_tags.csv")  # must contain column: tag
 PAGE_SIZE = 25
 
@@ -184,5 +185,83 @@ def build_country_set_cached() -> Set[str]:
                 out.add(COUNTRY_ABBREV.get(name, name))
     except Exception:
         out |= {
-            "Canada", "Mexico", "Brazil", "Argentina
+            "Canada", "Mexico", "Brazil", "Argentina", "Norway", "Netherlands", "Germany",
+            "France", "Italy", "Spain", "India", "China", "Japan", "Korea", "Australia",
+            "Saudi Arabia", "Qatar", "Kuwait", "Iraq", "Iran", "Oman", "Egypt", "Nigeria",
+        }
+    return out
 
+
+def extract_countries_from_tags(tags: List[str], country_set: Set[str]) -> Set[str]:
+    out: Set[str] = set()
+    for t in tags:
+        t_norm = _normalize_text(t)
+        if not t_norm:
+            continue
+        # map common abbreviations
+        if t_norm in COUNTRY_ABBREV:
+            out.add(COUNTRY_ABBREV[t_norm])
+            continue
+        # direct match to known country names
+        if t_norm in country_set:
+            out.add(t_norm)
+            continue
+        # sometimes tags include country names as part of longer phrases
+        # do a conservative containment check
+        for c in ("US", "UK", "UAE"):
+            if t_norm.upper() == c:
+                out.add(c)
+    return out
+
+
+# -------------------
+# Data loading
+# -------------------
+@st.cache_data(show_spinner=False)
+def load_csv(path: Path) -> pd.DataFrame:
+    if not path.exists():
+        return pd.DataFrame()
+    return pd.read_csv(path)
+
+
+def safe_mtime(path: Path) -> datetime | None:
+    if not path.exists():
+        return None
+    return datetime.fromtimestamp(path.stat().st_mtime)
+
+
+def latest_scraped_at(df: pd.DataFrame) -> datetime | None:
+    if df.empty:
+        return None
+    if "scraped_at" not in df.columns:
+        return None
+    s = pd.to_datetime(df["scraped_at"], errors="coerce")
+    if s.dropna().empty:
+        return None
+    return s.max().to_pydatetime()
+
+
+def pick_col(df: pd.DataFrame, candidates: List[str]) -> str | None:
+    cols_lower = {c.lower(): c for c in df.columns}
+    for cand in candidates:
+        if cand.lower() in cols_lower:
+            return cols_lower[cand.lower()]
+    return None
+
+
+def make_link_html(url: str, text: str) -> str:
+    u = html.escape(_normalize_text(url))
+    t = html.escape(_normalize_text(text)) or u
+    if not u:
+        return html.escape(_normalize_text(text))
+    return f'<a href="{u}" target="_blank" rel="noopener noreferrer">{t}</a>'
+
+
+def normalize_tags_list(tags: List[str], canonical_map: Dict[str, str], acronyms: Set[str]) -> List[str]:
+    out: List[str] = []
+    for t in tags:
+        raw = _normalize_text(t)
+        if not raw:
+            continue
+        key = raw.lower()
+        if key in canonical_map:
