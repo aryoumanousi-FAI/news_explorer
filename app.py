@@ -308,9 +308,9 @@ def fmt_date(x) -> str:
 
 
 def main() -> None:
-    st.set_page_config(page_title="JPT + WorldOil News", layout="wide")
-    st.title("JPT + WorldOil News Explorer")
-
+    st.set_page_config(page_title="Oil & Gas News Explorer", layout="wide")
+    st.title("Oil & Gas News Explorer")
+    
     # Load sources
     jpt = load_csv(JPT_PATH)
     wo = load_csv(WORLDOIL_PATH)
@@ -595,5 +595,6 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 
 
