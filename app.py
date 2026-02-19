@@ -1,13 +1,13 @@
-# app.py — JPT + WorldOil News Explorer (CSV) with:
+# app.py — JPT + WorldOil News Explorer
+# - Reads: jpt_scraper/data/jpt.csv  (JPT merged output)
+# - Reads: jpt_scraper/data/worldoil_full.csv (WorldOil canonical full)
 # - Last updated banner (file mtime + latest scraped_at)
 # - Tag + Topic normalization (Title Case + acronym preservation)
 # - Canonical tag mapping using all_tags.csv (case-insensitive; column: tag)
 # - Country filter (derived from tags) + manual additions: US, UK, UAE
 # - Cascading filters across Sources, Topics, Tags, Countries
 # - Toggle OR/AND matching for Topics, Tags, Countries via UI
-# - Clickable links IN the main table (HTML)
-# - Pagination (25 rows/page)
-# - Header bold + centered; Date single-line (no wrap)
+# - Card UI (big clickable title, excerpt, chips) + Pagination
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ import html
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Set
 
 import pandas as pd
 import streamlit as st
@@ -28,7 +28,7 @@ import streamlit as st
 JPT_PATH = Path("jpt_scraper/data/jpt.csv")
 WORLDOIL_PATH = Path("jpt_scraper/data/worldoil_full.csv")
 ALL_TAGS_PATH = Path("all_tags.csv")  # must contain column: tag
-PAGE_SIZE = 25
+PAGE_SIZE_DEFAULT = 25
 
 
 # -------------------
@@ -79,6 +79,7 @@ def _parse_listish(value) -> list[str]:
     if not s:
         return []
 
+    # try Python list literal
     if s.startswith("[") and s.endswith("]"):
         try:
             parsed = ast.literal_eval(s)
@@ -87,6 +88,7 @@ def _parse_listish(value) -> list[str]:
         except Exception:
             pass
 
+    # fallback CSV-ish
     return [p.strip() for p in s.split(",") if p.strip()]
 
 
@@ -119,7 +121,7 @@ def _smart_title_token(token: str, acronyms: Set[str]) -> str:
         up = raw.upper()
         return "CO2" if up == "CO₂" else up
 
-    # preserve intentional internal casing (e.g., "iPhone", "eBay", "McDermott")
+    # preserve internal casing (e.g., iPhone / eBay / McDermott)
     if any(c.isupper() for c in raw[1:]) and any(c.islower() for c in raw):
         return raw
 
@@ -169,6 +171,14 @@ def build_canonical_tag_map(master_tags: List[str], acronyms: Set[str]) -> Dict[
     return m
 
 
+def pick_col(df: pd.DataFrame, candidates: List[str]) -> str | None:
+    cols_lower = {c.lower(): c for c in df.columns}
+    for cand in candidates:
+        if cand.lower() in cols_lower:
+            return cols_lower[cand.lower()]
+    return None
+
+
 # -------------------
 # Countries
 # -------------------
@@ -184,34 +194,37 @@ def build_country_set_cached() -> Set[str]:
                     continue
                 out.add(COUNTRY_ABBREV.get(name, name))
     except Exception:
+        # fallback minimal list
         out |= {
             "Canada", "Mexico", "Brazil", "Argentina", "Norway", "Netherlands", "Germany",
             "France", "Italy", "Spain", "India", "China", "Japan", "Korea", "Australia",
             "Saudi Arabia", "Qatar", "Kuwait", "Iraq", "Iran", "Oman", "Egypt", "Nigeria",
+            "Malaysia", "Greece",
         }
     return out
 
 
-def extract_countries_from_tags(tags: List[str], country_set: Set[str]) -> Set[str]:
+def extract_countries_from_tags(tags: List[str], country_set: Set[str]) -> List[str]:
     out: Set[str] = set()
     for t in tags:
         t_norm = _normalize_text(t)
         if not t_norm:
             continue
-        # map common abbreviations
+
         if t_norm in COUNTRY_ABBREV:
             out.add(COUNTRY_ABBREV[t_norm])
             continue
-        # direct match to known country names
+
         if t_norm in country_set:
             out.add(t_norm)
             continue
-        # sometimes tags include country names as part of longer phrases
-        # do a conservative containment check
-        for c in ("US", "UK", "UAE"):
-            if t_norm.upper() == c:
-                out.add(c)
-    return out
+
+        # common abbreviations embedded
+        up = t_norm.upper()
+        if up in {"US", "UK", "UAE"}:
+            out.add(up)
+
+    return sorted(out)
 
 
 # -------------------
@@ -231,68 +244,13 @@ def safe_mtime(path: Path) -> datetime | None:
 
 
 def latest_scraped_at(df: pd.DataFrame) -> datetime | None:
-    if df.empty:
-        return None
-    if "scraped_at" not in df.columns:
+    if df.empty or "scraped_at" not in df.columns:
         return None
     s = pd.to_datetime(df["scraped_at"], errors="coerce")
-    if s.dropna().empty:
+    s = s.dropna()
+    if s.empty:
         return None
     return s.max().to_pydatetime()
-
-
-def pick_col(df: pd.DataFrame, candidates: List[str]) -> str | None:
-    cols_lower = {c.lower(): c for c in df.columns}
-    for cand in candidates:
-        if cand.lower() in cols_lower:
-            return cols_lower[cand.lower()]
-    return None
-
-
-def make_link_html(url: str, text: str) -> str:
-    u = html.escape(_normalize_text(url))
-    t = html.escape(_normalize_text(text)) or u
-    if not u:
-        return html.escape(_normalize_text(text))
-    return f'<a href="{u}" target="_blank" rel="noopener noreferrer">{t}</a>'
-
-
-def normalize_tags_list(tags: List[str], canonical_map: Dict[str, str], acronyms: Set[str]) -> List[str]:
-    out: List[str] = []
-    for t in tags:
-        raw = _normalize_text(t)
-        if not raw:
-            continue
-        key = raw.lower()
-        if key in canonical_map:
-            out.append(canonical_map[key])
-        else:
-            out.append(normalize_phrase(raw, acronyms))
-    # de-dupe while preserving order
-    seen = set()
-    deduped = []
-    for x in out:
-        if x not in seen:
-            seen.add(x)
-            deduped.append(x)
-    return deduped
-
-
-def normalize_topics_list(topics: List[str], acronyms: Set[str]) -> List[str]:
-    out: List[str] = []
-    for t in topics:
-        raw = _normalize_text(t)
-        if not raw:
-            continue
-        out.append(normalize_phrase(raw, acronyms))
-    # de-dupe preserving order
-    seen = set()
-    deduped = []
-    for x in out:
-        if x not in seen:
-            seen.add(x)
-            deduped.append(x)
-    return deduped
 
 
 def compute_last_updated_banner(jpt_df: pd.DataFrame, wo_df: pd.DataFrame) -> str:
@@ -307,8 +265,10 @@ def compute_last_updated_banner(jpt_df: pd.DataFrame, wo_df: pd.DataFrame) -> st
     return f"**Last updated:** file mtime = {mtime_str} | latest scraped_at = {latest_str}"
 
 
+# -------------------
+# Filtering helpers
+# -------------------
 def match_list(values: List[str], selected: List[str], mode_and: bool) -> bool:
-    """Return True if row matches selected list. If no selections, True."""
     if not selected:
         return True
     s = set(values or [])
@@ -317,14 +277,45 @@ def match_list(values: List[str], selected: List[str], mode_and: bool) -> bool:
     return any(x in s for x in selected)
 
 
+def truncate(s: str, n: int) -> str:
+    s = _normalize_text(s)
+    if not s:
+        return ""
+    return s if len(s) <= n else s[: n - 1].rstrip() + "…"
+
+
+def chip_row(items: List[str]) -> str:
+    if not items:
+        return ""
+    safe = [html.escape(_normalize_text(x)) for x in items if _normalize_text(x)]
+    if not safe:
+        return ""
+    return "".join([f'<span class="chip">{x}</span>' for x in safe])
+
+
+def fmt_date(x) -> str:
+    if x is None:
+        return ""
+    try:
+        if isinstance(x, float) and pd.isna(x):
+            return ""
+        dt = pd.to_datetime(x, errors="coerce")
+        if pd.isna(dt):
+            return ""
+        return dt.strftime("%Y-%m-%d")
+    except Exception:
+        return ""
+
+
 def main() -> None:
-    st.set_page_config(page_title="JPT + WorldOil News Explorer", layout="wide")
+    st.set_page_config(page_title="JPT + WorldOil News", layout="wide")
     st.title("JPT + WorldOil News Explorer")
 
-    # Load
+    # Load sources
     jpt = load_csv(JPT_PATH)
     wo = load_csv(WORLDOIL_PATH)
 
+    # Add source labels if missing
     if not jpt.empty and "source" not in jpt.columns:
         jpt["source"] = "JPT"
     if not wo.empty and "source" not in wo.columns:
@@ -340,23 +331,24 @@ def main() -> None:
         st.info("No data found yet. Make sure the CSVs exist and the workflows have run.")
         return
 
-    # Master tags + acronym set + canonical tag mapping
+    # Tag canonicalization
     master_tags = load_master_tags(ALL_TAGS_PATH)
     acronyms = build_acronym_set(master_tags)
     canonical_map = build_canonical_tag_map(master_tags, acronyms)
 
     country_set = build_country_set_cached()
 
-    # Identify column names (supports small schema differences)
+    # Detect core columns (schema-tolerant)
     col_title = pick_col(df, ["title", "headline"]) or "title"
     col_url = pick_col(df, ["url", "link", "article_url"]) or "url"
-    col_published = pick_col(df, ["published_date", "published", "date"])  # optional
-    col_scraped = pick_col(df, ["scraped_at"])  # optional
-    col_tags = pick_col(df, ["tags", "tag"])  # list-like
-    col_topics = pick_col(df, ["topics", "topic"])  # list-like
     col_source = pick_col(df, ["source"]) or "source"
+    col_published = pick_col(df, ["published_date", "published", "date"])
+    col_scraped = pick_col(df, ["scraped_at"])
+    col_tags = pick_col(df, ["tags", "tag"])
+    col_topics = pick_col(df, ["topics", "topic"])
+    col_excerpt = pick_col(df, ["excerpt", "summary", "description", "deck", "teaser", "subtitle"])
 
-    # Ensure required columns exist (avoid crashes)
+    # Ensure required columns exist
     for c in [col_title, col_url, col_source]:
         if c not in df.columns:
             df[c] = ""
@@ -368,267 +360,232 @@ def main() -> None:
         df["topics"] = [[] for _ in range(len(df))]
         col_topics = "topics"
 
-    # Parse + normalize list columns
+    # Parse list-like columns
     df[col_tags] = df[col_tags].apply(_parse_listish)
     df[col_topics] = df[col_topics].apply(_parse_listish)
 
-    df["tags_norm"] = df[col_tags].apply(lambda xs: normalize_tags_list(xs, canonical_map, acronyms))
-    df["topics_norm"] = df[col_topics].apply(lambda xs: normalize_topics_list(xs, acronyms))
+    # Normalize tags/topics
+    def normalize_tags_list(tags: List[str]) -> List[str]:
+        out: List[str] = []
+        for t in tags:
+            raw = _normalize_text(t)
+            if not raw:
+                continue
+            key = raw.lower()
+            if key in canonical_map:
+                out.append(canonical_map[key])
+            else:
+                out.append(normalize_phrase(raw, acronyms))
+        # de-dupe preserving order
+        seen = set()
+        deduped = []
+        for x in out:
+            if x not in seen:
+                seen.add(x)
+                deduped.append(x)
+        return deduped
 
-    # Countries derived from tags (plus manual US/UK/UAE already in set)
-    df["countries"] = df["tags_norm"].apply(lambda xs: sorted(extract_countries_from_tags(xs, country_set)))
+    def normalize_topics_list(topics: List[str]) -> List[str]:
+        out: List[str] = []
+        for t in topics:
+            raw = _normalize_text(t)
+            if raw:
+                out.append(normalize_phrase(raw, acronyms))
+        seen = set()
+        deduped = []
+        for x in out:
+            if x not in seen:
+                seen.add(x)
+                deduped.append(x)
+        return deduped
 
-    # Normalize source display
+    df["tags_norm"] = df[col_tags].apply(normalize_tags_list)
+    df["topics_norm"] = df[col_topics].apply(normalize_topics_list)
+
+    # Countries derived from tags
+    df["countries"] = df["tags_norm"].apply(lambda xs: extract_countries_from_tags(xs, country_set))
+
+    # Normalize source and title
     df["source_norm"] = df[col_source].apply(lambda x: normalize_phrase(_normalize_text(x), acronyms) if _normalize_text(x) else "")
-
-    # Normalize title for display (but keep raw too)
     df["title_norm"] = df[col_title].apply(lambda x: _normalize_text(x))
 
-    # Normalize dates
-    if col_published and col_published in df.columns:
-        df["published_dt"] = pd.to_datetime(df[col_published], errors="coerce")
-    else:
-        df["published_dt"] = pd.NaT
-
-    if col_scraped and col_scraped in df.columns:
-        df["scraped_dt"] = pd.to_datetime(df[col_scraped], errors="coerce")
-    else:
-        df["scraped_dt"] = pd.NaT
+    # Datetimes
+    df["published_dt"] = pd.to_datetime(df[col_published], errors="coerce") if col_published and col_published in df.columns else pd.NaT
+    df["scraped_dt"] = pd.to_datetime(df[col_scraped], errors="coerce") if col_scraped and col_scraped in df.columns else pd.NaT
 
     # -------------------
-    # Filters (cascading)
+    # Sidebar filters
     # -------------------
     st.sidebar.header("Filters")
 
-    # Toggle AND/OR modes
     topics_and = st.sidebar.toggle("Topics: AND match", value=False)
     tags_and = st.sidebar.toggle("Tags: AND match", value=False)
     countries_and = st.sidebar.toggle("Countries: AND match", value=False)
 
-    # Source filter
-    sources_all = sorted([s for s in df["source_norm"].dropna().unique().tolist() if _normalize_text(s)])
-    sel_sources = st.sidebar.multiselect("Sources", sources_all, default=sources_all)
+    st.sidebar.divider()
+    st.sidebar.header("Display")
+    page_size = st.sidebar.selectbox("Page size", [10, 25, 50, 100], index=1)
+    show_excerpt = st.sidebar.toggle("Show excerpt", value=True)
+    excerpt_len = st.sidebar.slider("Excerpt length", 120, 600, 320, 20)
 
-    # Apply sources first (cascade)
+    st.sidebar.divider()
+
+    # Sources
+    sources_all = sorted([s for s in df["source_norm"].dropna().unique().tolist() if _normalize_text(s)])
+    default_sources = sources_all[:]  # all
+    sel_sources = st.sidebar.multiselect("Sources", sources_all, default=default_sources)
+
     filtered = df[df["source_norm"].isin(sel_sources)].copy()
 
-    # Topic filter options from remaining
+    # Topic options from remaining
     topics_all = sorted({t for row in filtered["topics_norm"] for t in (row or [])})
     sel_topics = st.sidebar.multiselect("Topics", topics_all, default=[])
 
-    # Tag filter options from remaining (after topics selection too? keep cascade order)
+    # Tag options from remaining
     tags_all = sorted({t for row in filtered["tags_norm"] for t in (row or [])})
     sel_tags = st.sidebar.multiselect("Tags", tags_all, default=[])
 
-    # Country filter options
+    # Countries options from remaining
     countries_all = sorted({c for row in filtered["countries"] for c in (row or [])})
     sel_countries = st.sidebar.multiselect("Countries", countries_all, default=[])
 
     # Apply list filters
-    filtered = filtered[
-        filtered["topics_norm"].apply(lambda xs: match_list(xs or [], sel_topics, topics_and))
-    ]
-    filtered = filtered[
-        filtered["tags_norm"].apply(lambda xs: match_list(xs or [], sel_tags, tags_and))
-    ]
-    filtered = filtered[
-        filtered["countries"].apply(lambda xs: match_list(xs or [], sel_countries, countries_and))
-    ]
+    filtered = filtered[filtered["topics_norm"].apply(lambda xs: match_list(xs or [], sel_topics, topics_and))]
+    filtered = filtered[filtered["tags_norm"].apply(lambda xs: match_list(xs or [], sel_tags, tags_and))]
+    filtered = filtered[filtered["countries"].apply(lambda xs: match_list(xs or [], sel_countries, countries_and))]
 
-    # Search box (optional)
+    # Search
     q = st.sidebar.text_input("Search title", value="").strip()
     if q:
         filtered = filtered[filtered["title_norm"].str.contains(re.escape(q), case=False, na=False)]
 
-    # Sort newest first (published_dt then scraped_dt)
-    sort_cols: List[str] = []
+    # Sort newest first
+    sort_cols = []
     if "published_dt" in filtered.columns:
         sort_cols.append("published_dt")
     if "scraped_dt" in filtered.columns:
         sort_cols.append("scraped_dt")
-
     if sort_cols:
         filtered = filtered.sort_values(by=sort_cols, ascending=[False] * len(sort_cols), kind="mergesort")
 
-    # -------------------
-    # Pagination
-    # -------------------
     total = len(filtered)
     st.caption(f"Showing {total:,} results")
 
-    max_page = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
+    max_page = max(1, (total + page_size - 1) // page_size)
     page = st.number_input("Page", min_value=1, max_value=max_page, value=1, step=1)
 
-    start = (page - 1) * PAGE_SIZE
-    end = start + PAGE_SIZE
+    start = (page - 1) * page_size
+    end = start + page_size
     page_df = filtered.iloc[start:end].copy()
 
     # -------------------
-# Card UI helpers
-# -------------------
-def join_list(xs):
-    if not xs:
-        return ""
-    if isinstance(xs, list):
-        return ", ".join([str(x) for x in xs if str(x).strip()])
-    return ""
-
-def fmt_dt(x) -> str:
-    if pd.isna(x):
-        return ""
-    try:
-        return pd.to_datetime(x).strftime("%Y-%m-%d")
-    except Exception:
-        return ""
-
-def truncate(s: str, n: int = 260) -> str:
-    s = _normalize_text(s)
-    if not s:
-        return ""
-    return s if len(s) <= n else s[: n - 1].rstrip() + "…"
-
-def chip_row(items: list[str]) -> str:
-    # Render list items as small “pills”
-    if not items:
-        return ""
-    safe = [html.escape(_normalize_text(x)) for x in items if _normalize_text(x)]
-    if not safe:
-        return ""
-    return "".join([f'<span class="chip">{x}</span>' for x in safe])
-
-def safe_get(row, colname: str) -> str:
-    v = row.get(colname, "")
-    return "" if v is None or (isinstance(v, float) and pd.isna(v)) else str(v)
-
-# detect excerpt column once (works for both JPT + WorldOil)
-excerpt_col = pick_col(df, ["excerpt", "summary", "description"])
-
-# -------------------
-# Styling
-# -------------------
-st.markdown(
-    """
-    <style>
-      .news-wrap { max-width: 1150px; margin: 0 auto; }
-      .news-card {
-        border: 1px solid rgba(49, 51, 63, 0.2);
-        border-radius: 14px;
-        padding: 14px 16px;
-        margin: 12px 0;
-        background: rgba(255, 255, 255, 0.02);
-      }
-      .news-title {
-        font-size: 20px;
-        line-height: 1.25;
-        font-weight: 750;
-        margin: 0 0 6px 0;
-      }
-      .news-title a {
-        text-decoration: none;
-      }
-      .news-title a:hover {
-        text-decoration: underline;
-      }
-      .news-meta {
-        font-size: 13px;
-        opacity: 0.85;
-        margin: 0 0 10px 0;
-      }
-      .news-excerpt {
-        font-size: 15px;
-        line-height: 1.5;
-        margin: 0 0 10px 0;
-        opacity: 0.95;
-      }
-      .chip {
-        display: inline-block;
-        font-size: 12px;
-        padding: 3px 9px;
-        border-radius: 999px;
-        border: 1px solid rgba(49, 51, 63, 0.22);
-        margin: 0 6px 6px 0;
-        white-space: nowrap;
-      }
-      .chip-label {
-        font-size: 12px;
-        font-weight: 650;
-        opacity: 0.8;
-        margin: 4px 10px 6px 0;
-        display: inline-block;
-      }
-      hr.soft {
-        border: none;
-        border-top: 1px solid rgba(49, 51, 63, 0.12);
-        margin: 14px 0;
-      }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-# -------------------
-# Render cards
-# -------------------
-st.markdown('<div class="news-wrap">', unsafe_allow_html=True)
-
-for _, r in page_df.iterrows():
-    url = _normalize_text(safe_get(r, col_url))
-    title = _normalize_text(safe_get(r, "title_norm") or safe_get(r, col_title))
-    source = _normalize_text(safe_get(r, "source_norm") or safe_get(r, col_source))
-    published = fmt_dt(safe_get(r, "published_dt"))
-
-    # excerpt
-    excerpt = ""
-    if excerpt_col and excerpt_col in page_df.columns:
-        excerpt = truncate(safe_get(r, excerpt_col), 320)
-
-    # list fields (already normalized earlier in your app)
-    topics = r.get("topics_norm", []) or []
-    tags = r.get("tags_norm", []) or []
-    countries = r.get("countries", []) or []
-
-    title_html = html.escape(title) if title else "Untitled"
-    url_html = html.escape(url)
-
-    # Title is clickable
-    title_block = (
-        f'<div class="news-title"><a href="{url_html}" target="_blank" rel="noopener noreferrer">{title_html}</a></div>'
-        if url
-        else f'<div class="news-title">{title_html}</div>'
-    )
-
-    meta_parts = [p for p in [published, source] if p]
-    meta = " • ".join(meta_parts)
-
-    excerpt_html = f'<div class="news-excerpt">{html.escape(excerpt)}</div>' if excerpt else ""
-
-    chips_topics = chip_row(topics)
-    chips_tags = chip_row(tags)
-    chips_countries = chip_row(countries)
-
-    chips_html = ""
-    if chips_topics:
-        chips_html += f'<div><span class="chip-label">Topics</span>{chips_topics}</div>'
-    if chips_tags:
-        chips_html += f'<div><span class="chip-label">Tags</span>{chips_tags}</div>'
-    if chips_countries:
-        chips_html += f'<div><span class="chip-label">Countries</span>{chips_countries}</div>'
-
+    # Card UI
+    # -------------------
     st.markdown(
-        f"""
-        <div class="news-card">
-          {title_block}
-          <div class="news-meta">{html.escape(meta)}</div>
-          {excerpt_html}
-          {chips_html}
-        </div>
+        """
+        <style>
+          .news-wrap { max-width: 1150px; margin: 0 auto; }
+          .news-card {
+            border: 1px solid rgba(49, 51, 63, 0.2);
+            border-radius: 14px;
+            padding: 14px 16px;
+            margin: 12px 0;
+            background: rgba(255, 255, 255, 0.02);
+          }
+          .news-title {
+            font-size: 22px;
+            line-height: 1.25;
+            font-weight: 750;
+            margin: 0 0 6px 0;
+          }
+          .news-title a { text-decoration: none; }
+          .news-title a:hover { text-decoration: underline; }
+          .news-meta {
+            font-size: 13px;
+            opacity: 0.85;
+            margin: 0 0 10px 0;
+          }
+          .news-excerpt {
+            font-size: 15px;
+            line-height: 1.55;
+            margin: 0 0 10px 0;
+            opacity: 0.95;
+          }
+          .chip {
+            display: inline-block;
+            font-size: 12px;
+            padding: 3px 9px;
+            border-radius: 999px;
+            border: 1px solid rgba(49, 51, 63, 0.22);
+            margin: 0 6px 6px 0;
+            white-space: nowrap;
+          }
+          .chip-label {
+            font-size: 12px;
+            font-weight: 650;
+            opacity: 0.8;
+            margin: 4px 10px 6px 0;
+            display: inline-block;
+          }
+        </style>
         """,
         unsafe_allow_html=True,
     )
 
-st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown('<div class="news-wrap">', unsafe_allow_html=True)
+
+    for _, r in page_df.iterrows():
+        url = _normalize_text(r.get(col_url, ""))
+        title = _normalize_text(r.get("title_norm", "")) or "Untitled"
+        source = _normalize_text(r.get("source_norm", ""))
+
+        published = fmt_date(r.get("published_dt", None))
+        meta_parts = [p for p in [published, source] if p]
+        meta = " • ".join(meta_parts)
+
+        excerpt = ""
+        if show_excerpt and col_excerpt and col_excerpt in page_df.columns:
+            excerpt = truncate(r.get(col_excerpt, ""), excerpt_len)
+
+        topics = r.get("topics_norm", []) or []
+        tags = r.get("tags_norm", []) or []
+        countries = r.get("countries", []) or []
+
+        title_html = html.escape(title)
+        url_html = html.escape(url)
+
+        if url:
+            title_block = f'<div class="news-title"><a href="{url_html}" target="_blank" rel="noopener noreferrer">{title_html}</a></div>'
+        else:
+            title_block = f'<div class="news-title">{title_html}</div>'
+
+        excerpt_html = f'<div class="news-excerpt">{html.escape(excerpt)}</div>' if excerpt else ""
+
+        chips_html = ""
+        tchips = chip_row(topics)
+        if tchips:
+            chips_html += f'<div><span class="chip-label">Topics</span>{tchips}</div>'
+        xchips = chip_row(tags)
+        if xchips:
+            chips_html += f'<div><span class="chip-label">Tags</span>{xchips}</div>'
+        cchips = chip_row(countries)
+        if cchips:
+            chips_html += f'<div><span class="chip-label">Countries</span>{cchips}</div>'
+
+        st.markdown(
+            f"""
+            <div class="news-card">
+              {title_block}
+              <div class="news-meta">{html.escape(meta)}</div>
+              {excerpt_html}
+              {chips_html}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
 
 if __name__ == "__main__":
     main()
-
-
