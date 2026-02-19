@@ -454,10 +454,16 @@ def main() -> None:
     filtered = filtered[filtered["tags_norm"].apply(lambda xs: match_list(xs or [], sel_tags, tags_and))]
     filtered = filtered[filtered["countries"].apply(lambda xs: match_list(xs or [], sel_countries, countries_and))]
 
-    # Search
-    q = st.sidebar.text_input("Search title", value="").strip()
+    # Search (title + excerpt)
+    q = st.sidebar.text_input("Search (title + excerpt)", value="").strip()
     if q:
-        filtered = filtered[filtered["title_norm"].str.contains(re.escape(q), case=False, na=False)]
+        pattern = re.escape(q)
+        title_hit = filtered["title_norm"].fillna("").str.contains(pattern, case=False, na=False)
+        if col_excerpt and col_excerpt in filtered.columns:
+            excerpt_hit = filtered[col_excerpt].fillna("").astype(str).str.contains(pattern, case=False, na=False)
+        else:
+            excerpt_hit = pd.Series(False, index=filtered.index)
+        filtered = filtered[title_hit | excerpt_hit]
 
     # Sort newest first
     sort_cols = []
@@ -589,3 +595,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
