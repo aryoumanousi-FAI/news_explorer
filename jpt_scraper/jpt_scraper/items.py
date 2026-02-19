@@ -6,6 +6,7 @@
 import scrapy
 
 class JptScraperItem(scrapy.Item):
+    source = scrapy.Field()  # NEW
     url = scrapy.Field()
     title = scrapy.Field()
     excerpt = scrapy.Field()
@@ -15,3 +16,4 @@ class JptScraperItem(scrapy.Item):
     scraped_at = scrapy.Field()
     refresh_existing = scrapy.Field()      # ISO timestamp
     pass
+
