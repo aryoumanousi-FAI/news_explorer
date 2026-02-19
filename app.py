@@ -51,6 +51,8 @@ COUNTRY_ABBREV = {
     "U.K.": "UK",
     "United Kingdom": "UK",
     "Great Britain": "UK",
+    "UK/UKCS": "UK",
+    "U.K./UKCS": "UK",
     "Britain": "UK",
     "UAE": "UAE",
     "U.A.E.": "UAE",
@@ -183,3 +185,4 @@ def build_country_set_cached() -> Set[str]:
     except Exception:
         out |= {
             "Canada", "Mexico", "Brazil", "Argentina
+
