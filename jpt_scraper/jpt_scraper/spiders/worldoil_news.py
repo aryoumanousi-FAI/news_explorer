@@ -70,14 +70,12 @@ def read_last_date_from_csv(csv_path: str | None, source: str) -> str | None:
 def split_topics_tags(labels: list[str]) -> tuple[list[str], list[str]]:
     topics: list[str] = []
     tags: list[str] = []
-
     for raw in clean_list(labels):
         key = " ".join(raw.split()).strip().lower()
         if key in TOPIC_WHITELIST:
             topics.append(raw)   # keep original display text
         else:
             tags.append(raw)
-
     return clean_list(topics), clean_list(tags)
 
 class WorldOilNewsSpider(scrapy.Spider):
