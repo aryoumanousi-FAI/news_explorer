@@ -38,15 +38,8 @@ RETRY_TIMES = 3
 DOWNLOAD_TIMEOUT = 30
 
 # --- Output: CSV feed export ---
-# Writes items to data/jpt.csv
-FEEDS = {
-    str(DATA_DIR / "jpt.csv"): {
-        "format": "csv",
-        "encoding": "utf-8",
-        "overwrite": True,      # set False if you want append behavior
-        "store_empty": False,
-    }
-}
+# IMPORTANT: Do NOT set FEEDS here.
+# We control output via command line (-O / -o) in scripts to keep sources separate.
 FEED_EXPORT_ENCODING = "utf-8"
 
 # --- Pipelines ---
@@ -59,3 +52,4 @@ LOG_LEVEL = os.getenv("SCRAPY_LOG_LEVEL", "INFO")
 # --- Future-proof / required by newer Scrapy ---
 REQUEST_FINGERPRINTER_IMPLEMENTATION = "2.7"
 TWISTED_REACTOR = "twisted.internet.asyncioreactor.AsyncioSelectorReactor"
+
