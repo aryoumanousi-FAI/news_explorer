@@ -76,7 +76,7 @@ def add_topic(topics: list[str], t: str) -> list[str]:
 
 
 class WorldOilNewsSpider(scrapy.Spider):
-    name = "worldoil_news"
+    name = "worldoil_latest"
     allowed_domains = ["www.worldoil.com", "worldoil.com"]
     start_urls = START_URLS
 
