@@ -34,10 +34,10 @@ jobs:
       # -------------------------
       - name: Scrape JPT daily
         env:
-          SPIDERS: "jpt_latest"
-          MAX_PAGES: "10"
-          STOP_AT_LAST_DATE: "1"
-          MERGED_CSV_PATH: "jpt_scraper/data/jpt.csv"
+          JPT_SPIDERS: "jpt_latest"
+          JPT_MAX_PAGES: "10"
+          JPT_STOP_AT_LAST_DATE: "1"
+          JPT_MERGED_CSV_PATH: "jpt_scraper/data/jpt.csv"
         run: |
           python scripts/scrape_new.py
 
@@ -51,10 +51,10 @@ jobs:
       # -------------------------
       - name: Scrape WorldOil daily
         env:
-          SPIDERS: "worldoil_news"
-          MAX_PAGES: "10"
-          STOP_AT_LAST_DATE: "1"
-          FULL_CSV_PATH: "jpt_scraper/data/worldoil_full.csv"
+          WORLDOIL_SPIDERS: "worldoil_news"
+          WORLDOIL_MAX_PAGES: "10"
+          WORLDOIL_STOP_AT_LAST_DATE: "1"
+          WORLDOIL_FULL_CSV_PATH: "jpt_scraper/data/worldoil_full.csv"
         run: |
           python scripts/scrape_worldoil_daily.py
 
