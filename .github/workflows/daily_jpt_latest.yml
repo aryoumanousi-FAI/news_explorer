@@ -1,28 +1,20 @@
-name: Daily Scrape + Merge (JPT)
+name: Daily JPT scrape and merge
 
 on:
-  workflow_dispatch:
   schedule:
-    # Daily at 06:30 UTC (adjust as you like)
-    - cron: "30 6 * * *"
-
-# Prevent overlapping runs from fighting over commits/pushes
-concurrency:
-  group: jpt-daily-scrape
-  cancel-in-progress: true
+    - cron: "0 14 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  scrape_and_merge:
+  scrape-and-merge:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repo
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # needed for fetch/rebase
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -32,44 +24,27 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          if [ -f jpt_scraper/requirements.txt ]; then pip install -r jpt_scraper/requirements.txt; fi
+          pip install -r requirements.txt
 
-      - name: Scrape (daily)
-        env:
-          SPIDER_NAME: jpt_latest
-          MAX_PAGES: "10"
+      - name: Scrape daily data (overwrite jpt_daily.csv)
         run: |
           python scripts/scrape_new.py
 
-      - name: Merge (master + daily -> jpt.csv)
+      - name: Merge master + daily into jpt.csv
         run: |
           python scripts/merge_three_way.py
 
-      - name: Commit + rebase + push
+      - name: Commit and push changes
         run: |
-          set -euo pipefail
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add jpt_scraper/data/jpt_daily.csv
+          git add jpt_scraper/data/jpt.csv
 
-          # Always rebase onto latest remote main before committing/pushing
-          git fetch origin main
-          git checkout main
-          git rebase origin/main
-
-          # Stage outputs
-          git add jpt_scraper/data/jpt_daily.csv jpt_scraper/data/jpt.csv
-
-          if git diff --cached --quiet; then
+          if git diff --staged --quiet; then
             echo "No changes to commit."
-            exit 0
+          else
+            git commit -m "Auto-update: JPT daily + merged [skip ci]"
+            git push
           fi
-
-          git commit -m "Daily scrape + merge (JPT)"
-
-          # Rebase again in case remote moved during the run
-          git fetch origin main
-          git rebase origin/main
-
-          git push origin HEAD:main
