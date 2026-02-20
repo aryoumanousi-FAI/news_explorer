@@ -1,51 +1,14 @@
-name: Daily Scrape + Merge (JPT)
-
-on:
-  workflow_dispatch:
-  schedule:
-    # Daily at 06:30 UTC (adjust as you like)
-    - cron: "30 6 * * *"
-
-permissions:
-  contents: write
-
-jobs:
-  scrape_and_merge:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install dependencies
+      - name: Commit updated CSVs (rebase + push)
         run: |
-          python -m pip install --upgrade pip
-          # repo-level requirements (optional)
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          # scrapy project requirements (optional)
-          if [ -f jpt_scraper/requirements.txt ]; then pip install -r jpt_scraper/requirements.txt; fi
+          set -e
 
-      - name: Scrape (daily)
-        env:
-          SPIDER_NAME: jpt_latest
-          MAX_PAGES: "10"
-        run: |
-          python scripts/scrape_new.py
-
-      - name: Merge (master + daily -> jpt.csv)
-        run: |
-          python scripts/merge_three_way.py
-
-      - name: Commit updated CSVs
-        run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+          # Make sure we're up to date
+          git fetch origin main
+
+          # Stage outputs
           git add jpt_scraper/data/jpt_daily.csv jpt_scraper/data/jpt.csv
 
           if git diff --cached --quiet; then
@@ -54,4 +17,9 @@ jobs:
           fi
 
           git commit -m "Daily scrape + merge (JPT)"
-          git push
+
+          # Rebase our new commit on top of the latest remote main
+          git rebase origin/main
+
+          # Push the rebased commit
+          git push origin HEAD:main
