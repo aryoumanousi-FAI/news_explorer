@@ -332,13 +332,6 @@ def main() -> None:
         wo["source"] = "WorldOil"
 
     df = pd.concat([jpt, wo], ignore_index=True)
-
-    # Force-clear any shared object references created by concat
-    for col in [col_tags, col_topics]:
-        if col in df.columns:
-            # If a row has a null value, give it its own unique empty list
-            mask = df[col].isna()
-            df.loc[mask, col] = df.loc[mask, col].apply(lambda x: [])
             
     st.markdown(compute_last_updated_banner(jpt, wo))
 
@@ -654,4 +647,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 
