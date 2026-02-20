@@ -36,6 +36,10 @@ def main() -> None:
 
     combined = pd.concat([full_df, daily_df], ignore_index=True)
 
+    # HARD SAFETY: worldoil.csv must only contain WorldOil URLs
+    if "url" in combined.columns:
+        combined["url"] = combined["url"].astype(str)
+        combined = combined[combined["url"].str.contains(r"^https?://(www\.)?worldoil\.com/", na=False)]
     if "scraped_at" in combined.columns:
         combined["scraped_at"] = pd.to_datetime(combined["scraped_at"], errors="coerce")
         combined = combined.sort_values("scraped_at", ascending=True, kind="mergesort")
