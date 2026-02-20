@@ -3,15 +3,16 @@ from __future__ import annotations
 from pathlib import Path
 import pandas as pd
 
+
 SCRIPTS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPTS_DIR.parent
 
 SCRAPY_ROOT = REPO_ROOT / "jpt_scraper"
 DATA_DIR = SCRAPY_ROOT / "data"
 
-FULL_CSV = DATA_DIR / "worldoil_full.csv"     # NEVER touched
-DAILY_CSV = DATA_DIR / "worldoil_daily.csv"   # Overwritten daily
-MERGED_CSV = DATA_DIR / "worldoil.csv"        # Rebuilt every run
+MASTER_CSV = DATA_DIR / "worldoil_master.csv"   # NEVER touched
+DAILY_CSV = DATA_DIR / "worldoil_daily.csv"     # Overwritten daily
+MERGED_CSV = DATA_DIR / "worldoil.csv"          # Rebuilt every run
 
 
 def load_csv(path: Path, label: str) -> pd.DataFrame:
@@ -24,22 +25,18 @@ def load_csv(path: Path, label: str) -> pd.DataFrame:
 
 
 def main() -> None:
-    full_df = load_csv(FULL_CSV, "FULL")
+    master_df = load_csv(MASTER_CSV, "MASTER")
     daily_df = load_csv(DAILY_CSV, "DAILY")
 
-    if full_df.empty and daily_df.empty:
-        raise RuntimeError("Both FULL and DAILY are empty. Nothing to merge.")
+    if master_df.empty and daily_df.empty:
+        raise RuntimeError("Both MASTER and DAILY are empty. Nothing to merge.")
 
-    for name, df in [("FULL", full_df), ("DAILY", daily_df)]:
+    for name, df in [("MASTER", master_df), ("DAILY", daily_df)]:
         if not df.empty and "url" not in df.columns:
             raise ValueError(f"{name} CSV missing required 'url' column.")
 
-    combined = pd.concat([full_df, daily_df], ignore_index=True)
+    combined = pd.concat([master_df, daily_df], ignore_index=True)
 
-    # HARD SAFETY: worldoil.csv must only contain WorldOil URLs
-    if "url" in combined.columns:
-        combined["url"] = combined["url"].astype(str)
-        combined = combined[combined["url"].str.contains(r"^https?://(www\.)?worldoil\.com/", na=False)]
     if "scraped_at" in combined.columns:
         combined["scraped_at"] = pd.to_datetime(combined["scraped_at"], errors="coerce")
         combined = combined.sort_values("scraped_at", ascending=True, kind="mergesort")
