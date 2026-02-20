@@ -34,16 +34,18 @@ def main() -> None:
         if not df.empty and "url" not in df.columns:
             raise ValueError(f"{name} CSV missing required 'url' column.")
 
-    combined = pd.concat([master_df, daily_df], ignore_index=True)
-    
-    # SAFETY: jpt.csv must only contain JPT rows
-    if "source" in combined.columns:
-        combined["source"] = combined["source"].astype(str).str.strip().str.lower()
-        combined = combined[combined["source"].isin(["jpt"])]
+        combined = pd.concat([master_df, daily_df], ignore_index=True)
         
-    if "scraped_at" in combined.columns:
-        combined["scraped_at"] = pd.to_datetime(combined["scraped_at"], errors="coerce")
-        combined = combined.sort_values("scraped_at", ascending=True, kind="mergesort")
+        # HARD SAFETY: jpt.csv must only contain JPT URLs
+        if "url" in combined.columns:
+            combined["url"] = combined["url"].astype(str)
+            combined = combined[
+                combined["url"].str.contains(r"^https?://jpt\.spe\.org/", na=False)
+            ]
+        
+        if "scraped_at" in combined.columns:
+            combined["scraped_at"] = pd.to_datetime(combined["scraped_at"], errors="coerce")
+            combined = combined.sort_values("scraped_at", ascending=True, kind="mergesort")
 
     merged = combined.drop_duplicates(subset=["url"], keep="last")
 
