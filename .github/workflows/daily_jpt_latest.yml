@@ -1,12 +1,62 @@
-      - name: Commit updated CSVs (rebase + push)
+name: Daily Scrape + Merge (JPT)
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Daily at 06:30 UTC (adjust as you like)
+    - cron: "30 6 * * *"
+
+# Prevent overlapping runs from fighting over commits/pushes
+concurrency:
+  group: jpt-daily-scrape
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  scrape_and_merge:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # needed for fetch/rebase
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
         run: |
-          set -e
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          if [ -f jpt_scraper/requirements.txt ]; then pip install -r jpt_scraper/requirements.txt; fi
+
+      - name: Scrape (daily)
+        env:
+          SPIDER_NAME: jpt_latest
+          MAX_PAGES: "10"
+        run: |
+          python scripts/scrape_new.py
+
+      - name: Merge (master + daily -> jpt.csv)
+        run: |
+          python scripts/merge_three_way.py
+
+      - name: Commit + rebase + push
+        run: |
+          set -euo pipefail
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Make sure we're up to date
+          # Always rebase onto latest remote main before committing/pushing
           git fetch origin main
+          git checkout main
+          git rebase origin/main
 
           # Stage outputs
           git add jpt_scraper/data/jpt_daily.csv jpt_scraper/data/jpt.csv
@@ -18,8 +68,8 @@
 
           git commit -m "Daily scrape + merge (JPT)"
 
-          # Rebase our new commit on top of the latest remote main
+          # Rebase again in case remote moved during the run
+          git fetch origin main
           git rebase origin/main
 
-          # Push the rebased commit
           git push origin HEAD:main
