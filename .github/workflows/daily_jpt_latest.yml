@@ -1,16 +1,16 @@
-name: Daily Scrape (JPT Only)
+name: Daily Scrape + Merge (JPT)
 
 on:
   workflow_dispatch:
   schedule:
-    # daily at 06:30 UTC
+    # Daily at 06:30 UTC (adjust as you like)
     - cron: "30 6 * * *"
 
 permissions:
   contents: write
 
 jobs:
-  scrape:
+  scrape_and_merge:
     runs-on: ubuntu-latest
 
     steps:
@@ -25,21 +25,33 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
+          # repo-level requirements (optional)
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          # scrapy project requirements (optional)
           if [ -f jpt_scraper/requirements.txt ]; then pip install -r jpt_scraper/requirements.txt; fi
 
-      # -------------------------
-      # JPT pipeline only
-      # -------------------------
-      - name: Run JPT Spider
+      - name: Scrape (daily)
+        env:
+          SPIDER_NAME: jpt_latest
+          MAX_PAGES: "10"
         run: |
-          cd jpt_scraper
-          scrapy crawl jpt_latest
+          python scripts/scrape_new.py
 
-      - name: Commit updated CSV
+      - name: Merge (master + daily -> jpt.csv)
         run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git add jpt_scraper/data/jpt.csv || true
-          git commit -m "Update JPT data" || echo "No changes to commit"
+          python scripts/merge_three_way.py
+
+      - name: Commit updated CSVs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add jpt_scraper/data/jpt_daily.csv jpt_scraper/data/jpt.csv
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git commit -m "Daily scrape + merge (JPT)"
           git push
