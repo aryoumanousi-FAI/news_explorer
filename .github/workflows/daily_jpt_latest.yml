@@ -1,8 +1,9 @@
-name: Daily Scrape (JPT + WorldOil)
+name: Daily Scrape (JPT Only)
 
 on:
   workflow_dispatch:
   schedule:
+    # daily at 06:30 UTC
     - cron: "30 6 * * *"
 
 permissions:
@@ -15,8 +16,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0   # helps with pull --rebase
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -30,30 +29,17 @@ jobs:
           if [ -f jpt_scraper/requirements.txt ]; then pip install -r jpt_scraper/requirements.txt; fi
 
       # -------------------------
-      # JPT pipeline (JPT only)
+      # JPT pipeline only
       # -------------------------
-      - name: Scrape JPT daily
-        env:
-          JPT_SPIDERS: "jpt_latest"
-          JPT_MAX_PAGES: "10"
-          JPT_STOP_AT_LAST_DATE: "1"
-          JPT_MERGED_CSV_PATH: "jpt_scraper/data/jpt.csv"
+      - name: Run JPT Spider
         run: |
-          python scripts/scrape_new.py
+          cd jpt_scraper
+          scrapy crawl jpt_latest
 
-      - name: Merge JPT (rebuild jpt.csv)
+      - name: Commit updated CSV
         run: |
-          python scripts/merge_three_way.py
-        
-      # -------------------------
-      # Commit outputs
-      # -------------------------
-      - name: Commit updated CSVs
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-           
-          git diff --cached --quiet && echo "No changes to commit" && exit 0
-      
-          git commit -m "Daily news update"
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add jpt_scraper/data/jpt.csv || true
+          git commit -m "Update JPT data" || echo "No changes to commit"
           git push
