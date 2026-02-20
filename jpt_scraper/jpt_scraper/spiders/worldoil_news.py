@@ -19,11 +19,11 @@ MONTH_DATE_RE = re.compile(
 
 # Your explicit topic taxonomy (expand anytime)
 TOPIC_WHITELIST = {
-    "Onshore",
-    "Offshore",
-    "Digital Transformation",
-    "Energy Transition",
-    "Industry & Analysis",
+    "onshore",
+    "offshore",
+    "digital transformation",
+    "energy transition",
+    "industry & analysis",
 }
 
 def parse_date_from_text(text: str) -> str | None:
@@ -68,17 +68,16 @@ def read_last_date_from_csv(csv_path: str | None, source: str) -> str | None:
         return None
 
 def split_topics_tags(labels: list[str]) -> tuple[list[str], list[str]]:
-    """
-    Anything in TOPIC_WHITELIST => topic
-    Everything else => tag
-    """
     topics: list[str] = []
     tags: list[str] = []
-    for x in clean_list(labels):
-        if x in TOPIC_WHITELIST:
-            topics.append(x)
+
+    for raw in clean_list(labels):
+        key = " ".join(raw.split()).strip().lower()
+        if key in TOPIC_WHITELIST:
+            topics.append(raw)   # keep original display text
         else:
-            tags.append(x)
+            tags.append(raw)
+
     return clean_list(topics), clean_list(tags)
 
 class WorldOilNewsSpider(scrapy.Spider):
