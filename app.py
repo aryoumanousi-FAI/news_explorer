@@ -1,10 +1,11 @@
 # app.py — Oil & Gas News Explorer
 # Sources (separate merged outputs):
-# - jpt_scraper/data/jpt.csv       (JPT merged output)
-# - jpt_scraper/data/worldoil.csv  (WorldOil merged output)
+# - jpt_scraper/data/jpt.csv         (JPT merged output)
+# - jpt_scraper/data/worldoil.csv    (WorldOil merged output)
+# - jpt_scraper/data/oilprice.csv    (OilPrice merged output)
 #
 # Notes:
-# - Default view is JPT-only (toggle WorldOil in Sources)
+# - Default view is JPT-only (toggle WorldOil or OilPrice in Sources)
 # - Robust against missing columns / empty files
 # - NEVER uses shared list defaults (prevents “all tags/topics on every card” bug)
 
@@ -26,6 +27,7 @@ import streamlit as st
 # -------------------
 JPT_PATH = Path("jpt_scraper/data/jpt.csv")
 WORLDOIL_PATH = Path("jpt_scraper/data/worldoil.csv")
+OILPRICE_PATH = Path("jpt_scraper/data/oilprice.csv")
 ALL_TAGS_PATH = Path("all_tags.csv")  # must contain column: tag
 
 DEFAULT_SOURCES = ["JPT"]          # JPT-only by default
@@ -248,12 +250,12 @@ def latest_scraped_at(df: pd.DataFrame) -> datetime | None:
     return s.max().to_pydatetime()
 
 
-def compute_last_updated_banner(jpt_df: pd.DataFrame, wo_df: pd.DataFrame) -> str:
-    mtimes = [safe_mtime(JPT_PATH), safe_mtime(WORLDOIL_PATH)]
+def compute_last_updated_banner(jpt_df: pd.DataFrame, wo_df: pd.DataFrame, op_df: pd.DataFrame) -> str:
+    mtimes = [safe_mtime(JPT_PATH), safe_mtime(WORLDOIL_PATH), safe_mtime(OILPRICE_PATH)]
     mtimes = [m for m in mtimes if m is not None]
     mtime_str = max(mtimes).strftime("%Y-%m-%d %H:%M:%S") if mtimes else "N/A"
 
-    latest = [latest_scraped_at(jpt_df), latest_scraped_at(wo_df)]
+    latest = [latest_scraped_at(jpt_df), latest_scraped_at(wo_df), latest_scraped_at(op_df)]
     latest = [x for x in latest if x is not None]
     latest_str = max(latest).strftime("%Y-%m-%d %H:%M:%S") if latest else "N/A"
 
@@ -324,16 +326,19 @@ def main() -> None:
     # Load sources (separate merged outputs)
     jpt = load_csv(JPT_PATH)
     wo = load_csv(WORLDOIL_PATH)
+    op = load_csv(OILPRICE_PATH)
 
     # Force source labels so neither “disappears”
     if not jpt.empty:
         jpt["source"] = "JPT"
     if not wo.empty:
         wo["source"] = "WorldOil"
+    if not op.empty:
+        op["source"] = "OilPrice"
 
-    df = pd.concat([jpt, wo], ignore_index=True)
+    df = pd.concat([jpt, wo, op], ignore_index=True)
             
-    st.markdown(compute_last_updated_banner(jpt, wo))
+    st.markdown(compute_last_updated_banner(jpt, wo, op))
 
     if df.empty:
         st.info("No data found yet. Make sure the CSVs exist and the workflows have run.")
@@ -415,7 +420,7 @@ def main() -> None:
     df["scraped_dt"] = pd.to_datetime(df[col_scraped], errors="coerce") if col_scraped and col_scraped in df.columns else pd.NaT
 
     if PREFER_JPT_ON_TIES:
-        df["_source_rank"] = df[col_source].map({"JPT": 0, "WorldOil": 1}).fillna(9).astype(int)
+        df["_source_rank"] = df[col_source].map({"JPT": 0, "OilPrice": 1, "WorldOil": 2}).fillna(9).astype(int)
     else:
         df["_source_rank"] = 0
 
@@ -647,5 +652,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
