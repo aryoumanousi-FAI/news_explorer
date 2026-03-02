@@ -13,7 +13,7 @@ SCRAPY_ROOT = REPO_ROOT / "jpt_scraper"
 DATA_DIR = SCRAPY_ROOT / "jpt_scraper" / "data"
 
 # File name for the fresh scrape
-DAILY_CSV = DATA_DIR / "oilprice_new.csv"
+DAILY_CSV = DATA_DIR / "oilprice_daily.csv"
 
 # Spider name matches the one we defined in oilprice_latest.py
 SPIDER_NAME = os.getenv("SPIDER_NAME", "oilprice_latest")
