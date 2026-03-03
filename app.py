@@ -597,7 +597,7 @@ def main() -> None:
         unsafe_allow_html=True,
     )
 
-    # -------------------
+# -------------------
     # Render cards
     # -------------------
     st.markdown('<div class="news-wrap">', unsafe_allow_html=True)
@@ -607,21 +607,28 @@ def main() -> None:
         title = _normalize_text(r.get("title_norm", "")) or "Untitled"
         source = _normalize_text(r.get("source_norm", ""))
         
-        # Add company name to meta display if available
+        # 1. Get the company name if it exists
         company = _normalize_text(r.get(col_company, "")) if col_company and col_company in page_df.columns else ""
 
+        # 2. Format the published date
         published = fmt_date(r.get("published_dt", None))
         
-        meta_items = [p for p in [published, source, company] if p]
+        # 3. Meta line is strictly Date • Source (e.g., 2026-03-03 • OilPrice)
+        meta_items = [p for p in [published, source] if p]
         meta = " • ".join(meta_items)
 
         excerpt = ""
         if show_excerpt and col_excerpt and col_excerpt in page_df.columns:
             excerpt = truncate(r.get(col_excerpt, ""), excerpt_len)
 
-        topics = r.get("topics_norm", []) or []
-        tags = r.get("tags_norm", []) or []
-        countries = r.get("countries", []) or []
+        # 4. Ensure tags are lists so we can modify them
+        topics = list(r.get("topics_norm", []) or [])
+        tags = list(r.get("tags_norm", []) or [])
+        countries = list(r.get("countries", []) or [])
+
+        # 5. Add the Company Name as a Tag!
+        if company and company not in tags:
+            tags.append(company)
 
         title_html = html.escape(title)
         if url:
@@ -639,9 +646,11 @@ def main() -> None:
         tchips = chip_row(topics)
         if tchips:
             chips_html += f'<div><span class="chip-label">Topics</span>{tchips}</div>'
+        
         xchips = chip_row(tags)
         if xchips:
             chips_html += f'<div><span class="chip-label">Tags</span>{xchips}</div>'
+            
         cchips = chip_row(countries)
         if cchips:
             chips_html += f'<div><span class="chip-label">Countries</span>{cchips}</div>'
@@ -663,3 +672,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
