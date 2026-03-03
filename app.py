@@ -360,6 +360,7 @@ def main() -> None:
     col_topics = pick_col(df, ["topics", "topic"]) or "topics"
     col_excerpt = pick_col(df, ["excerpt", "summary", "description", "deck", "teaser", "subtitle"])
     col_company = pick_col(df, ["company_name", "company"])
+    col_meta = pick_col(df, ["meta_info"])
 
     # Ensure minimal columns exist
     ensure_column(df, col_title, "str")
@@ -417,7 +418,15 @@ def main() -> None:
     )
     df["title_norm"] = df[col_title].apply(lambda x: _normalize_text(x))
 
+    # --- Date Extraction Logic ---
     df["published_dt"] = pd.to_datetime(df[col_published], errors="coerce") if col_published and col_published in df.columns else pd.NaT
+    
+    # Fallback: Extract from meta_info if published_dt is missing
+    if col_meta and col_meta in df.columns:
+        extracted_dates = df[col_meta].astype(str).str.extract(r"([A-Z][a-z]{2}\s\d{1,2},\s\d{4})")[0]
+        fallback_dt = pd.to_datetime(extracted_dates, errors="coerce")
+        df["published_dt"] = df["published_dt"].fillna(fallback_dt)
+        
     df["scraped_dt"] = pd.to_datetime(df[col_scraped], errors="coerce") if col_scraped and col_scraped in df.columns else pd.NaT
 
     if PREFER_JPT_ON_TIES:
@@ -597,7 +606,7 @@ def main() -> None:
         unsafe_allow_html=True,
     )
 
-# -------------------
+    # -------------------
     # Render cards
     # -------------------
     st.markdown('<div class="news-wrap">', unsafe_allow_html=True)
@@ -607,13 +616,12 @@ def main() -> None:
         title = _normalize_text(r.get("title_norm", "")) or "Untitled"
         source = _normalize_text(r.get("source_norm", ""))
         
-        # 1. Get the company name if it exists
+        # Pull company name to add it as a tag
         company = _normalize_text(r.get(col_company, "")) if col_company and col_company in page_df.columns else ""
 
-        # 2. Format the published date
         published = fmt_date(r.get("published_dt", None))
         
-        # 3. Meta line is strictly Date • Source (e.g., 2026-03-03 • OilPrice)
+        # Meta line shows ONLY Date • Source
         meta_items = [p for p in [published, source] if p]
         meta = " • ".join(meta_items)
 
@@ -621,12 +629,11 @@ def main() -> None:
         if show_excerpt and col_excerpt and col_excerpt in page_df.columns:
             excerpt = truncate(r.get(col_excerpt, ""), excerpt_len)
 
-        # 4. Ensure tags are lists so we can modify them
         topics = list(r.get("topics_norm", []) or [])
         tags = list(r.get("tags_norm", []) or [])
         countries = list(r.get("countries", []) or [])
 
-        # 5. Add the Company Name as a Tag!
+        # Add Company Name to tags if it exists
         if company and company not in tags:
             tags.append(company)
 
@@ -672,4 +679,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
