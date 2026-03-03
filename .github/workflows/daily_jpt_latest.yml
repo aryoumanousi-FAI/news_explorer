@@ -1,4 +1,4 @@
-name: Daily Scrape + Merge (JPT + WorldOil)
+name: Daily Scrape + Merge (JPT + WorldOil + OilPrice)
 
 on:
   schedule:
@@ -70,6 +70,20 @@ jobs:
           python scripts/merge_worldoil_three_way.py
 
       # -------------------------
+      # OilPrice pipeline
+      # -------------------------
+      - name: Scrape OilPrice daily (overwrite oilprice_daily.csv)
+        env:
+          SPIDER_NAME: oilprice_company_news
+          MAX_PAGES: "10"
+        run: |
+          python scripts/oilprice_latest.py
+
+      - name: Merge OilPrice master + daily into oilprice.csv
+        run: |
+          python scripts/oilprice_merge.py
+
+      # -------------------------
       # Commit + push (robust)
       # -------------------------
       - name: Commit and push changes (rebase + retry)
@@ -79,12 +93,14 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Stage outputs
+          # Stage outputs for all three sources
           git add \
             jpt_scraper/data/jpt_daily.csv \
             jpt_scraper/data/jpt.csv \
             jpt_scraper/data/worldoil_daily.csv \
-            jpt_scraper/data/worldoil.csv
+            jpt_scraper/data/worldoil.csv \
+            jpt_scraper/data/oilprice_daily.csv \
+            jpt_scraper/data/oilprice.csv
 
           if git diff --cached --quiet; then
             echo "No changes to commit."
