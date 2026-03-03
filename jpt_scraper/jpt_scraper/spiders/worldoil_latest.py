@@ -1,36 +1,65 @@
-import scrapy
+from __future__ import annotations
 
-class OilPriceSpider(scrapy.Spider):
-    name = "oilprice_company_news"
+from datetime import datetime, timezone
+
+import scrapy
+from dateutil import parser as dateparser
+
+from jpt_scraper.items import JptScraperItem
+
+
+API_URL = "https://oilprice.com/api/posts/category/company-news?page={page}"
+
+
+class OilPriceLatestSpider(scrapy.Spider):
+    name = "oilprice_latest"
     allowed_domains = ["oilprice.com"]
-    start_urls = ["https://oilprice.com/Company-News/"]
 
     custom_settings = {
-        "CONCURRENT_REQUESTS": 12,
-        "AUTOTHROTTLE_ENABLED": True,
-        "DOWNLOAD_DELAY": 0.5,
-        "ROBOTSTXT_OBEY": True,
+        "CONCURRENT_REQUESTS": 4,
+        "DOWNLOAD_DELAY": 0.4,
+        "FEED_EXPORT_ENCODING": "utf-8",
         "LOG_LEVEL": "INFO",
+        "FEEDS": {
+            r"C:\dev\pyhton_workspace\jpt_news\jpt_scraper\jpt_scraper\data\oilprice_master.csv": {
+                "format": "csv",
+                "encoding": "utf-8",
+                "overwrite": True,
+            }
+        },
     }
 
-    def parse(self, response):
-        for article in response.css("div.categoryArticle"):
-            company_name = article.css("p.categoryArticle__companyName::text").get()
-            title = article.css("h2.categoryArticle__title::text").get()
-            link = article.css("a::attr(href)").get()
-            excerpt = article.css("p.categoryArticle__excerpt::text").get()
-            meta_info = article.css("p.categoryArticle__meta::text").get()
+    def start_requests(self):
+        yield scrapy.Request(API_URL.format(page=1), meta={"page": 1})
 
-            if company_name:
-                yield {
-                    "company_name": company_name.strip(),
-                    "title": title.strip() if title else None,
-                    "url": response.urljoin(link) if link else None,
-                    "excerpt": excerpt.strip() if excerpt else None,
-                    "meta_info": meta_info.strip() if meta_info else None,
-                }
+    def parse(self, response: scrapy.http.Response):
+        data = response.json()
+        posts = data.get("posts", [])
 
-        # Follow pagination
-        next_page = response.css("div.pagination a.next::attr(href)").get()
-        if next_page:
-            yield response.follow(next_page, callback=self.parse)
+        if not posts:
+            return  # no more pages
+
+        for post in posts:
+            try:
+                published_date = dateparser.parse(post["published_at"]).date().isoformat()
+            except Exception:
+                continue
+
+            url = "https://oilprice.com" + post["url"]
+
+            yield JptScraperItem(
+                source="oilprice",
+                url=url,
+                title=post.get("title", "").strip(),
+                excerpt=(post.get("excerpt") or "").strip(),
+                published_date=published_date,
+                company_name=(post.get("company") or "").strip(),
+                topics=["Company News"],
+                tags=["OilPrice"],
+                scraped_at=datetime.now(timezone.utc).isoformat(),
+                refresh_existing=0,
+            )
+
+        # Next page
+        page = response.meta["page"] + 1
+        yield scrapy.Request(API_URL.format(page=page), meta={"page": page})
