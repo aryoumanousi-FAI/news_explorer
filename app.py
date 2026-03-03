@@ -1,8 +1,3 @@
-Here is the updated `app.py`. I have integrated the new `oilprice.csv` source alongside JPT and WorldOil.
-
-The main changes include adding the path for OilPrice, loading its CSV, tagging its rows with the `"OilPrice"` source, including it in the concatenated dataframe, updating the rank tie-breaker, and modifying the "Last updated" banner to scan all three files.
-
-```python
 # app.py — Oil & Gas News Explorer
 # Sources (separate merged outputs):
 # - jpt_scraper/data/jpt.csv       (JPT merged output)
@@ -670,3 +665,4 @@ if __name__ == "__main__":
     main()
 
 ```
+
