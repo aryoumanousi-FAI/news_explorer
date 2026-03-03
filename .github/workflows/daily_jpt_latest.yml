@@ -74,14 +74,14 @@ jobs:
       # -------------------------
       - name: Scrape OilPrice daily (overwrite oilprice_daily.csv)
         env:
-          SPIDER_NAME: oilprice_company_news  # Ensure this matches the `name = "..."` inside your spider class
+          SPIDER_NAME: oilprice_company_news
           MAX_PAGES: "10"
         run: |
           python scripts/scrape_oilprice_new.py
 
       - name: Merge OilPrice master + daily into oilprice.csv
         run: |
-          python scripts/oilprice_merge.py
+          python scripts/merge_oilprice_three_way.py
 
       # -------------------------
       # Commit + push (robust)
