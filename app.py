@@ -30,7 +30,7 @@ WORLDOIL_PATH = Path("jpt_scraper/data/worldoil.csv")
 OILPRICE_PATH = Path("jpt_scraper/data/oilprice.csv")
 ALL_TAGS_PATH = Path("all_tags.csv")  # must contain column: tag
 
-DEFAULT_SOURCES = ["JPT"]          # JPT-only by default
+DEFAULT_SOURCES = ["JPT", "WorldOil", "OilPrice"]  # All sources selected by default
 PREFER_JPT_ON_TIES = True          # tie-breaker for same-date items
 PAGE_SIZE_DEFAULT_INDEX = 3        # 100
 
@@ -679,3 +679,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
